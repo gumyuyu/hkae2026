@@ -3,6 +3,11 @@ import json
 from fastmcp import Client
 from mcp_server import server as mcp_server
 
+import base64
+import io
+from pathlib import Path
+from PIL import Image
+import datetime
 
 class AIAgent:
     def __init__(self, model: str = "gpt-oss:20b-cloud", base_url: str = "http://localhost:11434"):
@@ -82,6 +87,20 @@ class AIAgent:
         
 
         result = await self.client.call_tool(tool, params)
+        image_b64 = result.data.get("image_base64")
+        if image_b64:
+            # Ensure the /images folder exists
+            images_dir = Path("images")
+            images_dir.mkdir(exist_ok=True)
+
+            # Convert base64 to image
+            image_bytes = base64.b64decode(image_b64)
+            image = Image.open(io.BytesIO(image_bytes))
+
+            # Save with a dynamic filename (e.g., timestamp)
+            filename = images_dir / f"{tool}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            image.save(filename)
+            print(f"[AIAgent] Saved generated image to {filename}")
         return {
             "used_tool": tool,
             "params": decision["params"],
