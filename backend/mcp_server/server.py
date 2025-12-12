@@ -28,21 +28,20 @@ mcp = FastMCP(name="VR Object Generator MCP")
 
 @mcp.tool(name="generate_image")
 def tool_generate_image(payload: TextPrompt):
-    """Text → Image"""
-    image_bytes = generate_image_from_text(payload.prompt)
-    return {"image_base64": base64.b64encode(image_bytes).decode()}
+    b64_image = generate_image_from_text(payload.prompt)
+    return {"image_base64": b64_image}
 
 @mcp.tool(name="generate_object")
 def tool_generate_object(payload: ImageInput):
     """Image → 3D object"""
-    glb_bytes = generate_object_from_image(payload.image_base64)
-    return {"object_base64": base64.b64encode(glb_bytes).decode()}
+    b64_object = generate_object_from_image(payload.image_base64)
+    return {"object_base64": b64_object}
 
 @mcp.tool(name="generate_object_from_text")
 def tool_generate_object_from_text(payload: ObjectFromTextInput):
     """Text → Image → 3D object"""
-    glb_bytes = generate_object_from_text_pipeline(payload.text)
-    return {"object_base64": base64.b64encode(glb_bytes).decode()}
+    b64_object = generate_object_from_text(payload.text)
+    return {"object_base64": b64_object}
 
 
 def start_mcp_server(blocking=True):

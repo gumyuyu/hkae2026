@@ -87,20 +87,7 @@ class AIAgent:
         
 
         result = await self.client.call_tool(tool, params)
-        image_b64 = result.data.get("image_base64")
-        if image_b64:
-            # Ensure the /images folder exists
-            images_dir = Path("images")
-            images_dir.mkdir(exist_ok=True)
-
-            # Convert base64 to image
-            image_bytes = base64.b64decode(image_b64)
-            image = Image.open(io.BytesIO(image_bytes))
-
-            # Save with a dynamic filename (e.g., timestamp)
-            filename = images_dir / f"{tool}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            image.save(filename)
-            print(f"[AIAgent] Saved generated image to {filename}")
+        
         return {
             "used_tool": tool,
             "params": decision["params"],

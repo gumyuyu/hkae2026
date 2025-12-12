@@ -5,6 +5,11 @@ from diffusers import ZImagePipeline, FlowMatchEulerDiscreteScheduler
 from sdnq import SDNQConfig # import sdnq to register it into diffusers and transformers
 from sdnq.common import use_torch_compile as triton_is_available
 from sdnq.loader import apply_sdnq_options_to_model
+from pathlib import Path
+import uuid
+
+def ensure_dir(path: str):
+    Path(path).mkdir(parents=True, exist_ok=True)
 
 # Global variable to store the loaded model
 _zimage_pipe = None
@@ -106,6 +111,13 @@ def generate_image_base64(prompt: str, height: int = 256, width: int = 256, step
         )
 
     image = result.images[0]
+
+    ensure_dir("output/images")
+    filename = f"zimage_{uuid.uuid4().hex}.png"
+    filepath = Path("output/images") / filename
+    image.save(filepath)
+    print(f"[ZImage] Saved image to {filepath}")
+
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
