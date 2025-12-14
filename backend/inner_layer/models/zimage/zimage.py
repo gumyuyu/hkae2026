@@ -35,18 +35,22 @@ def get_zimage_pipeline():
             torch_dtype=dtype,
             low_cpu_mem_usage=True,
         )
-        if triton_is_available and (torch.cuda.is_available() or torch.xpu.is_available()):
-            _zimage_pipe.transformer = apply_sdnq_options_to_model(pipe.transformer, use_quantized_matmul=True)
-            _zimage_pipe.text_encoder = apply_sdnq_options_to_model(pipe.text_encoder, use_quantized_matmul=True)
-            _zimage_pipe.transformer = torch.compile(pipe.transformer) # optional for faster speeds
-
-        _zimage_pipe.enable_model_cpu_offload()
-
+        
         _zimage_pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
             _zimage_pipe.scheduler.config,
             use_beta_sigmas=True,
         )
+        
         _zimage_pipe.to(device)
+        
+        # if triton_is_available and (torch.cuda.is_available() or torch.xpu.is_available()):
+        #     _zimage_pipe.transformer = apply_sdnq_options_to_model(_zimage_pipe.transformer, use_quantized_matmul=True)
+        #     _zimage_pipe.text_encoder = apply_sdnq_options_to_model(_zimage_pipe.text_encoder, use_quantized_matmul=True)
+        #     _zimage_pipe.transformer = torch.compile(_zimage_pipe.transformer) # optional for faster speeds
+
+        _zimage_pipe.enable_model_cpu_offload()
+
+        
         _zimage_pipe.enable_attention_slicing()
 
         if hasattr(_zimage_pipe, "enable_vae_slicing"):

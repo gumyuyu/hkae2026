@@ -11,7 +11,7 @@ from .hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
 from .hy3dgen.texgen import Hunyuan3DPaintPipeline
 from pathlib import Path
 import uuid
-
+from mmgp import offload, profile_type
 def ensure_dir(path: str):
     Path(path).mkdir(parents=True, exist_ok=True)
 
@@ -67,9 +67,12 @@ def get_hunyuan_shape_model():
             "tencent/Hunyuan3D-2mini",
             subfolder="hunyuan3d-dit-v2-mini-turbo",
             use_safetensors=False,
-            device=device,
+            device=device,  
         )
-
+        print("[Hunyuan] Finished Loading Hunyuan 3D Shape Model")
+        print("[Hunyuan] Offloading Hunyuan 3D Shape Model for MMGP")
+        offload.profile(_hunyuan_shape, profile_type.LowRAM_LowVRAM)
+        print("[Hunyuan] Finished Offloading Hunyuan 3D Shape Model for MMGP")
     return _hunyuan_shape
 
 
@@ -80,8 +83,12 @@ def get_hunyuan_texture_model():
         print("[Hunyuan] Loading Hunyuan Texture Model...")
         _hunyuan_texture = Hunyuan3DPaintPipeline.from_pretrained(
             "tencent/Hunyuan3D-2"
-        )
-
+        ).to("cpu")
+        print("[Hunyuan] Finished loading Hunyuan Texture Model")
+        print("[Hunyuan] Offloading Hunyuan Texture Model for MMGP")
+        offload.profile(_hunyuan_texture, profile_type.LowRAM_LowVRAM)
+        print("[Hunyuan] Finished Offloading Hunyuan Texture Model for MMGP")
+        
     return _hunyuan_texture
 
 

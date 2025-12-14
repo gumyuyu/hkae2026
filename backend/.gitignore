@@ -1,5 +1,9 @@
 .venv/
+venv/
 __pycache__/
 *.pyc
 output/
 .python-version
+*build/
+*.egg-info
+*.egg
