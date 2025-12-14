@@ -3,6 +3,9 @@ Libraries Installation and Start Backend:
 ```bash
 cd ./backend
 
+python3 -m venv venv
+source ./venv/bin/activate
+
 # basic libraries
 pip install -r ./requirements.txt
 
