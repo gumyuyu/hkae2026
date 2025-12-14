@@ -64,15 +64,15 @@ def get_hunyuan_shape_model():
         print(f"[Hunyuan] Loading Hunyuan 3D Shape Model on {device}...")
 
         _hunyuan_shape = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            "tencent/Hunyuan3D-2mini",
-            subfolder="hunyuan3d-dit-v2-mini-turbo",
-            use_safetensors=False,
-            device=device,  
+            'tencent/Hunyuan3D-2mini',
+            subfolder='hunyuan3d-dit-v2-mini',
+            variant='fp16'
         )
+        # _hunyuan_shape.enable_flashvdm(topk_mode='merge')
         print("[Hunyuan] Finished Loading Hunyuan 3D Shape Model")
-        print("[Hunyuan] Offloading Hunyuan 3D Shape Model for MMGP")
-        offload.profile(_hunyuan_shape, profile_type.LowRAM_LowVRAM)
-        print("[Hunyuan] Finished Offloading Hunyuan 3D Shape Model for MMGP")
+        # print("[Hunyuan] Offloading Hunyuan 3D Shape Model for MMGP")
+        # offload.profile(_hunyuan_shape, profile_type.LowRAM_LowVRAM)
+        # print("[Hunyuan] Finished Offloading Hunyuan 3D Shape Model for MMGP")
     return _hunyuan_shape
 
 
@@ -95,7 +95,7 @@ def get_hunyuan_texture_model():
 # -------------------------
 # Main Function: image → GLB (base64)
 # -------------------------
-def generate_3d_object_from_image_base64(image_b64: str) -> dict:
+def generate_3d_object_from_image_base64(image_b64: str) -> str:
     """
     Takes a base64 PNG/JPG image
     → removes background (if needed)
@@ -116,7 +116,7 @@ def generate_3d_object_from_image_base64(image_b64: str) -> dict:
 
     # Load models
     shape_model = get_hunyuan_shape_model()
-    texture_model = get_hunyuan_texture_model()
+    # texture_model = get_hunyuan_texture_model()
 
     # Run Hunyuan 3D Shape Model
     print("[Hunyuan] Generating 3D shape…")
@@ -135,7 +135,7 @@ def generate_3d_object_from_image_base64(image_b64: str) -> dict:
 
     # Run Texture Model
     print("[Hunyuan] Generating texture…")
-    mesh = texture_model(mesh, image=image)
+    # mesh = texture_model(mesh, image=image)
 
     # Export GLB → bytes
     glb_bytes = mesh.export(file_type="glb")
