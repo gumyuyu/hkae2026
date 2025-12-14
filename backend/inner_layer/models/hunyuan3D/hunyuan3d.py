@@ -68,11 +68,8 @@ def get_hunyuan_shape_model():
             subfolder='hunyuan3d-dit-v2-mini',
             variant='fp16'
         )
-        # _hunyuan_shape.enable_flashvdm(topk_mode='merge')
         print("[Hunyuan] Finished Loading Hunyuan 3D Shape Model")
-        # print("[Hunyuan] Offloading Hunyuan 3D Shape Model for MMGP")
-        # offload.profile(_hunyuan_shape, profile_type.LowRAM_LowVRAM)
-        # print("[Hunyuan] Finished Offloading Hunyuan 3D Shape Model for MMGP")
+
     return _hunyuan_shape
 
 
@@ -114,14 +111,13 @@ def generate_3d_object_from_image_base64(image_b64: str) -> str:
         rembg = get_rembg()
         image = rembg(image)
 
-    # Load models
-    shape_model = get_hunyuan_shape_model()
     
 
     # Run Hunyuan 3D Shape Model
+    shape_model = get_hunyuan_shape_model()
+
     print("[Hunyuan] Generating 3D shape…")
     start_time = time.time()
-
     mesh = shape_model(
         image=image,
         num_inference_steps=50,
@@ -130,8 +126,15 @@ def generate_3d_object_from_image_base64(image_b64: str) -> str:
         generator=torch.manual_seed(42),
         output_type="trimesh",
     )[0]
-
     print(f"[Hunyuan] Shape gen took {time.time() - start_time:.2f} sec")
+    
+    glb_bytes = mesh.export(file_type="glb")
+    ensure_dir("output/shapes")
+    filename = f"hunyuan_{uuid.uuid4().hex}.glb"
+    filepath = Path("output/shapes") / filename
+    with open(filepath, "wb") as f:
+        f.write(glb_bytes)
+    print(f"[Hunyuan] Saved 3D shape to {filepath}")
 
     # Run Texture Model
     texture_model = get_hunyuan_texture_model()
@@ -139,14 +142,14 @@ def generate_3d_object_from_image_base64(image_b64: str) -> str:
     start_time = time.time()
     mesh = texture_model(mesh, image=image)
     print(f"[Hunyuan] Texture gen took {time.time() - start_time:.2f} sec")
-    # Export GLB → bytes
+    
     glb_bytes = mesh.export(file_type="glb")
-    ensure_dir("output/objects")
+    ensure_dir("output/textured_objects")
     filename = f"hunyuan_{uuid.uuid4().hex}.glb"
-    filepath = Path("output/objects") / filename
+    filepath = Path("output/textured_objects") / filename
     with open(filepath, "wb") as f:
         f.write(glb_bytes)
-    print(f"[Hunyuan] Saved 3D model to {filepath}")
+    print(f"[Hunyuan] Saved 3D textured object to {filepath}")
     
     return base64.b64encode(glb_bytes).decode("utf-8")
 

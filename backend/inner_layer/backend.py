@@ -1,9 +1,6 @@
 import base64
-import sys
 from inner_layer.models.zimage.zimage import generate_image_base64
-sys.path.append("inner_layer/models/Hunyuan3D-2GP")
-
-from hunyuan3d import generate_3d_object_from_image_base64
+from inner_layer.models.hunyuan3D.hunyuan3d import generate_3d_object_from_image_base64
 
 def generate_image_from_text(text: str) -> str:
     return generate_image_base64(text) 
