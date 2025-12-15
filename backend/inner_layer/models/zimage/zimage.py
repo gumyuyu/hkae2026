@@ -7,6 +7,10 @@ from sdnq.common import use_torch_compile as triton_is_available
 from sdnq.loader import apply_sdnq_options_to_model
 from pathlib import Path
 import uuid
+import trimesh
+import numpy as np
+from PIL import Image
+
 
 def ensure_dir(path: str):
     Path(path).mkdir(parents=True, exist_ok=True)
@@ -24,7 +28,7 @@ def get_zimage_pipeline():
     
     if _zimage_pipe is None:
         device = get_best_device()
-        print(f"Using device: {device}")
+        print(f"[ZImage] Using device: {device}")
         print(f"[ZImage] Loading Z-Image-Turbo on {device}...")
         
         # Use bfloat16 for better quality
@@ -55,11 +59,11 @@ def get_zimage_pipeline():
 
         if hasattr(_zimage_pipe, "enable_vae_slicing"):
             _zimage_pipe.enable_vae_slicing()
-            print("VAE slicing enabled")
+            print("[ZImage] VAE slicing enabled")
 
         if hasattr(getattr(_zimage_pipe, "vae", None), "enable_tiling"):
             _zimage_pipe.vae.enable_tiling()
-            print("VAE tiling enabled")
+            print("[ZImage] VAE tiling enabled")
         print("[ZImage] Model loaded successfully.")
     return _zimage_pipe
 
@@ -82,9 +86,29 @@ def get_best_device():
         return "cpu"
 
 
+def image_to_glb(image: Image.Image, thickness: float = 0.001) -> bytes:
+    w, h = image.size
+    aspect = w / h
+
+    # Thin box so viewers don’t cull it
+    mesh = trimesh.creation.box(
+        extents=(aspect, 1.0, thickness)
+    )
+
+    # Simple UV mapping
+    uv = np.zeros((len(mesh.vertices), 2))
+    uv[:, 0] = (mesh.vertices[:, 0] / aspect + 0.5)
+    uv[:, 1] = (mesh.vertices[:, 1] + 0.5)
+
+    mesh.visual = trimesh.visual.TextureVisuals(
+        uv=uv,
+        image=image
+    )
+
+    return mesh.export(file_type="glb")
 
 
-def generate_image_base64(prompt: str, height: int = 256, width: int = 256, steps: int = 7, seed: int = 5) -> str:
+def generate_image_base64(prompt: str, height: int = 768, width: int = 768, steps: int = 50, seed: int = 5) -> str:
     """
     Generate an image from text prompt using Z-Image-Turbo.
     Returns base64-encoded PNG.
@@ -122,6 +146,14 @@ def generate_image_base64(prompt: str, height: int = 256, width: int = 256, step
     image.save(filepath)
     print(f"[ZImage] Saved image to {filepath}")
 
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+    glb_bytes = image_to_glb(image)
+
+    # Save GLB
+    ensure_dir("output/images")
+    glb_name = f"zimage_{uuid.uuid4().hex}.glb"
+    with open(Path("output/images") / glb_name, "wb") as f:
+        f.write(glb_bytes)
+    filepath = Path("output/images") / glb_name
+    print(f"[ZImage] Saved glb to {filepath}")
+
+    return base64.b64encode(glb_bytes).decode("utf-8")
