@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VR GLB Loader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body { margin:0; overflow:hidden; font-family:sans-serif; }
+  canvas { display:block; width:100vw; height:100vh; }
+  #spawnInput {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 250px;
+    padding: 5px;
+    font-size: 16px;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+<input id="spawnInput" type="text" placeholder="Type text and press Enter">
+
+<script type="module">
+import * as THREE from './three/three.module.js';
+import { VRButton } from './three/VRButton.js';
+import { GLTFLoader } from './three/GLTFLoader.js';
+
+let scene, camera, renderer;
+let controller1, controller2;
+const grabbableObjects = [];
+const loader = new GLTFLoader();
+
+init();
+animate();
+
+function init() {
+  // Scene & camera
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87CEFA); // sky blue
+
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 50);
+  camera.position.set(0,1.6,3);
+
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  document.body.appendChild(VRButton.createButton(renderer));
+
+  // Lighting
+  const hemi = new THREE.HemisphereLight(0xfffbbb, 0x87cefa, 1.2); 
+  scene.add(hemi);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(5,10,5);
+  scene.add(dirLight);
+
+  // Ground
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(20,20),
+    new THREE.MeshStandardMaterial({color:0x99ee99, roughness:0.8})
+  );
+  ground.rotation.x = -Math.PI/2;
+  scene.add(ground);
+
+  // Controllers
+  controller1 = renderer.xr.getController(0);
+  controller2 = renderer.xr.getController(1);
+  scene.add(controller1, controller2);
+
+  const sphereGeo = new THREE.SphereGeometry(0.03,16,16);
+  const sphereMat = new THREE.MeshStandardMaterial({color:0x0000ff});
+  controller1.add(new THREE.Mesh(sphereGeo, sphereMat));
+  controller2.add(new THREE.Mesh(sphereGeo, sphereMat));
+
+  addControllerRay(controller1);
+  addControllerRay(controller2);
+
+  controller1.addEventListener('selectstart', ()=>onSelectStart(controller1));
+  controller1.addEventListener('selectend', ()=>onSelectEnd(controller1));
+  controller2.addEventListener('selectstart', ()=>onSelectStart(controller2));
+  controller2.addEventListener('selectend', ()=>onSelectEnd(controller2));
+
+  window.addEventListener('resize', onWindowResize);
+
+  // Pre-VR text input
+  const input = document.getElementById('spawnInput');
+  input.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter'){
+      const spawnPos = new THREE.Vector3();
+      camera.getWorldDirection(spawnPos);
+      spawnPos.multiplyScalar(2).add(camera.position); // 2 meters in front
+      spawnGLB(spawnPos);
+      input.value = '';
+    }
+  });
+}
+
+// ---------------- Spawn GLB ----------------
+function spawnGLB(position){
+  loader.load('textured_mesh.glb', gltf => {
+    const model = gltf.scene;
+    model.position.copy(position);
+    model.scale.set(0.5,0.5,0.5);
+    scene.add(model);
+    grabbableObjects.push(model);
+  }, undefined, err=>{
+    console.error('Error loading GLB:', err);
+  });
+}
+
+// ---------------- Controller Rays ----------------
+function addControllerRay(controller){
+  const rayLength = 10;
+  const rayMaterial = new THREE.LineBasicMaterial({color:0xffff00});
+  const rayGeometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0,0,0),
+    new THREE.Vector3(0,0,-rayLength)
+  ]);
+  const rayLine = new THREE.Line(rayGeometry, rayMaterial);
+  controller.add(rayLine);
+  controller.userData.rayLine = rayLine;
+  controller.userData.rayMaxLength = rayLength;
+}
+
+// ---------------- Grab + Rotation Logic ----------------
+function onSelectStart(controller){
+  const raycaster = new THREE.Raycaster();
+  raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+  raycaster.ray.direction.set(0,0,-1).applyQuaternion(controller.quaternion);
+
+  const intersects = raycaster.intersectObjects(grabbableObjects, true);
+  if(intersects.length>0){
+    controller.userData.grabbing = true;
+    controller.userData.grabbedObject = intersects[0].object.parent || intersects[0].object;
+
+    // Calculate offset for smooth following
+    const controllerPos = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
+    const objectPos = controller.userData.grabbedObject.position.clone();
+    controller.userData.offset = new THREE.Vector3().subVectors(objectPos, controllerPos);
+
+    // Capture initial rotation
+    controller.userData.initialRotation = controller.userData.grabbedObject.rotation.clone();
+    controller.userData.rayLine.material.color.set(0xff0000);
+  }
+}
+
+function onSelectEnd(controller){
+  controller.userData.grabbing = false;
+  controller.userData.grabbedObject = null;
+  controller.userData.offset = null;
+  controller.userData.initialRotation = null;
+  controller.userData.rayLine.material.color.set(0xffff00);
+}
+
+// ---------------- Animation ----------------
+function animate(){
+  renderer.setAnimationLoop(render);
+}
+
+function render(){
+  [controller1, controller2].forEach(ctrl=>{
+    if(!ctrl.userData.rayLine) return;
+
+    const controllerPos = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld);
+    const rayDir = new THREE.Vector3(0,0,-1).applyQuaternion(ctrl.quaternion);
+
+    // Raycast to objects
+    const raycaster = new THREE.Raycaster(controllerPos, rayDir);
+    const intersects = raycaster.intersectObjects(grabbableObjects, true);
+    let rayLength = ctrl.userData.rayMaxLength;
+
+    if(intersects.length>0){
+      rayLength = controllerPos.distanceTo(intersects[0].point);
+      if(!ctrl.userData.grabbing) ctrl.userData.rayLine.material.color.set(0x00ff00);
+    } else if(!ctrl.userData.grabbing){
+      ctrl.userData.rayLine.material.color.set(0xffff00);
+    }
+
+    // Grabbed object follows controller + joystick
+    if(ctrl.userData.grabbing && ctrl.userData.grabbedObject){
+      const obj = ctrl.userData.grabbedObject;
+
+      // Push/pull along ray
+      let distance = ctrl.userData.offset.length();
+      if(ctrl.gamepad){
+        const pushPull = ctrl.gamepad.axes[3] || 0;
+        distance += pushPull * 0.05;
+      }
+
+      const newPos = controllerPos.clone().add(rayDir.clone().multiplyScalar(distance));
+      obj.position.copy(newPos);
+
+      // Rotation using joystick axes
+      if(ctrl.gamepad){
+        const rx = ctrl.gamepad.axes[2] || 0; // secondary joystick X
+        const ry = ctrl.gamepad.axes[3] || 0; // secondary joystick Y
+        obj.rotation.y += rx*0.05;
+        obj.rotation.x += ry*0.05;
+      }
+    }
+
+    // Update ray length
+    const positions = ctrl.userData.rayLine.geometry.attributes.position.array;
+    positions[0]=0; positions[1]=0; positions[2]=0;
+    positions[3]=0; positions[4]=0; positions[5]=-rayLength;
+    ctrl.userData.rayLine.geometry.attributes.position.needsUpdate = true;
+  });
+
+  renderer.render(scene,camera);
+}
+
+function onWindowResize(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+</script>
+</body>
+</html>
