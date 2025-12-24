@@ -1,15 +1,15 @@
 # VR-Image-3D-Object-Generator
-Libraries Installation and Start Backend:
+Dependencies Installation and Start Backend:
 ```bash
 cd ./backend
 
 python3 -m venv venv
 source ./venv/bin/activate
 
-# basic libraries
+# installing basic dependencies
 pip install -r ./requirements.txt
 
-# for object generation
+# installing dependencies for object generation
 cd ./inner_layer/models/hunyuan3D/
 pip install -r ./hunyuan3d_requirements.txt
 pip install -e .
@@ -23,4 +23,18 @@ python3 setup.py install
 # starting backend server
 cd ../../../../../../
 uvicorn outer_layer.app:app --reload
+```
+
+Dependencies Installation and Start Frontend:
+```bash
+cd ./frontend
+
+# installing dependencies
+npm install
+
+# generating openssl keys for openssl
+openssl req -nodes -new -x509 -keyout key.pem -out cert.pem -days 365
+
+# starting frontend server
+node server.js
 ```
