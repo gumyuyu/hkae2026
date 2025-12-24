@@ -32,7 +32,7 @@ cd ./frontend
 # installing dependencies
 npm install
 
-# generating openssl keys for openssl
+# generating openssl keys for https
 openssl req -nodes -new -x509 -keyout key.pem -out cert.pem -days 365
 
 # starting frontend server
