@@ -2,42 +2,68 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>XR VR ↔ AR Toggle (Prompt Driven)</title>
+<title>XR AR/VR Toggle (Modern UI)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <style>
-  body { margin:0; overflow:hidden; font-family:sans-serif; }
+  body { margin:0; overflow:hidden; font-family:'Segoe UI', sans-serif; background:#e0f0ff; }
   canvas { display:block; }
 
   #ui {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
+    position:absolute; top:20px; left:50%; transform:translateX(-50%);
+    z-index:10;
+    background: rgba(255,255,255,0.95);
+    padding:12px 16px;
+    border-radius:12px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.15);
+    display:flex; gap:12px; align-items:center;
+    backdrop-filter:blur(5px);
   }
 
-  input {
-    padding: 6px 10px;
-    font-size: 14px;
-    width: 260px;
+  #promptInput {
+    padding:8px 12px; font-size:15px; border:1px solid #ccc; border-radius:8px;
+    outline:none; flex:1; transition:border 0.2s, box-shadow 0.2s;
   }
+  #promptInput:focus { border-color:#4a90e2; box-shadow:0 0 8px rgba(74,144,226,0.5); }
 
   button {
-    padding: 6px 12px;
-    font-size: 14px;
-    margin-left: 6px;
-    cursor: pointer;
+    padding:8px 16px; font-size:14px; border:none; border-radius:8px;
+    background:#4a90e2; color:white; cursor:pointer;
+    transition:background 0.2s, transform 0.1s;
   }
+  button:hover { background:#357ab8; transform:translateY(-1px); }
+  button:active { transform:translateY(1px); }
+
+  /* AR/VR toggle switch with labels */
+  .switch-container { display:flex; align-items:center; gap:6px; user-select:none; }
+  .switch-label { font-size:14px; color:#333; }
+  .switch { position: relative; display:inline-block; width:60px; height:28px; }
+  .switch input { opacity:0; width:0; height:0; }
+  .slider {
+    position: absolute; cursor:pointer; top:0; left:0; right:0; bottom:0;
+    background:#ccc; transition:.4s; border-radius:28px;
+  }
+  .slider:before {
+    position:absolute; content:""; height:22px; width:22px; left:3px; bottom:3px;
+    background:white; transition:.4s; border-radius:50%;
+  }
+  input:checked + .slider { background:#4a90e2; }
+  input:checked + .slider:before { transform:translateX(32px); }
 </style>
 </head>
-
 <body>
 
 <div id="ui">
-  <input id="promptInput" placeholder="Describe object and press Enter">
-  <button id="enterVR">VR</button>
-  <button id="enterAR">AR</button>
+  <input id="promptInput" placeholder="Describe object...">
+  <button id="sendPrompt">Send</button>
+  <button id="xrButton">Enter XR</button>
+  <div class="switch-container">
+    <span class="switch-label">VR</span>
+    <label class="switch">
+      <input type="checkbox" id="arvrToggle">
+      <span class="slider"></span>
+    </label>
+    <span class="switch-label">AR</span>
+  </div>
 </div>
 
 <script type="module">
@@ -45,182 +71,166 @@ import * as THREE from './three/three.module.js';
 import { GLTFLoader } from './three/GLTFLoader.js';
 
 let scene, camera, renderer;
-let controller1, controller2;
+let leftController, rightController;
 let ground;
 let currentSession = null;
+let xrMode = 'VR'; // default
 
 const loader = new GLTFLoader();
 const grabbableObjects = [];
+const RAY_IDLE=0xffff00, RAY_HOVER=0x00ffff, RAY_ACTIVE=0xff0000;
 
 init();
 animate();
 
-/* -------------------- INIT -------------------- */
+/* ---------------- INIT ---------------- */
 function init() {
-
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87CEFA);
-
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 50);
+  camera = new THREE.PerspectiveCamera(70,window.innerWidth/window.innerHeight,0.01,50);
   camera.position.set(0,1.6,3);
 
-  renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer = new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.setSize(window.innerWidth,window.innerHeight);
   renderer.xr.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  /* Lights */
-  scene.add(new THREE.HemisphereLight(0xfff1c1, 0x87cefa, 1.2));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-  dir.position.set(5,10,5);
-  scene.add(dir);
+  scene.add(new THREE.HemisphereLight(0xfff1c1,0x87cefa,1.2));
+  const dir=new THREE.DirectionalLight(0xffffff,0.6); dir.position.set(5,10,5); scene.add(dir);
 
-  /* Ground (VR only) */
-  ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(20,20),
-    new THREE.MeshStandardMaterial({ color:0x99ee99, roughness:0.8 })
-  );
-  ground.rotation.x = -Math.PI/2;
-  scene.add(ground);
+  ground=new THREE.Mesh(new THREE.PlaneGeometry(20,20),new THREE.MeshStandardMaterial({color:0x99ee99,roughness:0.8}));
+  ground.rotation.x=-Math.PI/2; scene.add(ground);
 
-  /* Controllers */
-  controller1 = renderer.xr.getController(0);
-  controller2 = renderer.xr.getController(1);
-  scene.add(controller1, controller2);
+  leftController=renderer.xr.getController(0);
+  rightController=renderer.xr.getController(1);
+  scene.add(leftController,rightController);
+  addControllerRay(leftController); addControllerRay(rightController);
 
-  addControllerRay(controller1);
-  addControllerRay(controller2);
+  rightController.addEventListener('selectstart', ()=>grabStart(rightController));
+  rightController.addEventListener('selectend', ()=>grabEnd(rightController));
+  rightController.addEventListener('squeezestart', ()=>{rightController.userData.rotate=true; setRayColor(rightController,RAY_ACTIVE);});
+  rightController.addEventListener('squeezeend', ()=>{rightController.userData.rotate=false; if(!rightController.userData.grabbedObject) setRayColor(rightController,RAY_IDLE);});
 
-  controller1.addEventListener('selectstart', ()=>onSelectStart(controller1));
-  controller1.addEventListener('selectend', ()=>onSelectEnd(controller1));
-  controller2.addEventListener('selectstart', ()=>onSelectStart(controller2));
-  controller2.addEventListener('selectend', ()=>onSelectEnd(controller2));
+  leftController.addEventListener('selectstart', ()=>{leftController.userData.scaleUp=true; setRayColor(leftController,RAY_ACTIVE);});
+  leftController.addEventListener('selectend', ()=>leftController.userData.scaleUp=false);
+  leftController.addEventListener('squeezestart', ()=>{leftController.userData.scaleDown=true; setRayColor(leftController,RAY_ACTIVE);});
+  leftController.addEventListener('squeezeend', ()=>leftController.userData.scaleDown=false);
 
-  /* Rotation */
-  controller1.addEventListener('squeezestart', ()=>controller1.userData.rotateRight=true);
-  controller1.addEventListener('squeezeend', ()=>controller1.userData.rotateRight=false);
-  controller2.addEventListener('squeezestart', ()=>controller2.userData.rotateLeft=true);
-  controller2.addEventListener('squeezeend', ()=>controller2.userData.rotateLeft=false);
+  document.getElementById('sendPrompt').onclick = sendPrompt;
+  document.getElementById('promptInput').addEventListener('keydown', e=>{if(e.key==='Enter') sendPrompt();});
+  document.getElementById('xrButton').onclick = toggleXRSession;
 
-  /* UI */
-  document.getElementById('enterVR').onclick = startVR;
-  document.getElementById('enterAR').onclick = startAR;
-
-  const input = document.getElementById('promptInput');
-  input.addEventListener('keydown', e=>{
-    if(e.key === 'Enter' && input.value.trim()){
-      const prompt = input.value.trim();
-      console.log('Prompt:', prompt); // backend later
-      spawnGLB(prompt);
-      input.value = '';
+  const toggle = document.getElementById('arvrToggle');
+  toggle.checked = false; // VR default
+  toggle.addEventListener('change', async e=>{
+    xrMode = e.target.checked?'AR':'VR';
+    if(currentSession){
+      await currentSession.end();
+      if(xrMode==='VR') await startVR(); else await startAR();
+      document.getElementById('xrButton').textContent='Exit XR';
     }
   });
 
   window.addEventListener('resize', onResize);
 }
 
-/* -------------------- XR SESSIONS -------------------- */
+/* ---------------- XR ---------------- */
+async function toggleXRSession(){
+  if(currentSession){
+    await currentSession.end(); currentSession=null;
+    document.getElementById('xrButton').textContent='Enter XR';
+  } else {
+    if(xrMode==='VR') await startVR(); else await startAR();
+    document.getElementById('xrButton').textContent='Exit XR';
+  }
+}
+
 async function startVR(){
-  if(currentSession) await currentSession.end();
-  const session = await navigator.xr.requestSession('immersive-vr',{
-    optionalFeatures:['local-floor','bounded-floor']
-  });
-  renderer.xr.setSession(session);
-  currentSession = session;
-  scene.background = new THREE.Color(0x87CEFA);
-  ground.visible = true;
+  const session=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','bounded-floor']});
+  renderer.xr.setSession(session); currentSession=session;
+  scene.background=new THREE.Color(0x87CEFA); ground.visible=true;
 }
 
 async function startAR(){
-  if(currentSession) await currentSession.end();
-  const session = await navigator.xr.requestSession('immersive-ar',{
-    optionalFeatures:['local-floor','hit-test']
-  });
-  renderer.xr.setSession(session);
-  currentSession = session;
-  scene.background = null;
-  ground.visible = false;
+  const session=await navigator.xr.requestSession('immersive-ar',{optionalFeatures:['local-floor','hit-test']});
+  renderer.xr.setSession(session); currentSession=session;
+  scene.background=null; ground.visible=false;
 }
 
-/* -------------------- SPAWN (PROMPT DRIVEN) -------------------- */
-function spawnGLB(prompt){
+/* ---------------- SPAWN ---------------- */
+function sendPrompt(){
+  const input=document.getElementById('promptInput');
+  const prompt=input.value.trim(); if(!prompt) return;
   loader.load('textured_mesh.glb', gltf=>{
-    const wrapper = new THREE.Group();
-    wrapper.position.copy(camera.position)
-      .add(new THREE.Vector3(0,0,-2).applyQuaternion(camera.quaternion));
-    wrapper.scale.set(0.5,0.5,0.5);
+    const wrapper=new THREE.Group();
+    wrapper.position.copy(camera.position).add(new THREE.Vector3(0,0,-2).applyQuaternion(camera.quaternion));
+    wrapper.scale.setScalar(0.5);
     wrapper.add(gltf.scene);
-
-    wrapper.userData.prompt = prompt; // attach metadata
-    scene.add(wrapper);
-    grabbableObjects.push(wrapper);
+    wrapper.userData.prompt=prompt;
+    scene.add(wrapper); grabbableObjects.push(wrapper);
   });
+  input.value='';
 }
 
-/* -------------------- RAYS -------------------- */
-function addControllerRay(controller){
-  const geo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0,0,0),
-    new THREE.Vector3(0,0,-10)
-  ]);
-  const mat = new THREE.LineBasicMaterial({ color:0xffff00 });
-  const line = new THREE.Line(geo, mat);
-  controller.add(line);
-  controller.userData.ray = line;
+/* ---------------- RAYS ---------------- */
+function addControllerRay(ctrl){
+  const geo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0,0,-1)]);
+  const mat=new THREE.LineBasicMaterial({color:RAY_IDLE});
+  const line=new THREE.Line(geo, mat);
+  ctrl.add(line); ctrl.userData.ray=line;
+}
+function setRayColor(ctrl,color){ctrl.userData.ray.material.color.set(color);}
+function updateRayLength(ctrl,length){const pos=ctrl.userData.ray.geometry.attributes.position; pos.setZ(1,-length); pos.needsUpdate=true;}
+
+/* ---------------- GRAB ---------------- */
+function grabStart(ctrl){
+  const hit=raycast(ctrl); if(!hit) return;
+  ctrl.userData.grabbing=true; ctrl.userData.grabbedObject=hit.objectRoot; ctrl.userData.distance=hit.distance;
+  setRayColor(ctrl,RAY_ACTIVE);
+}
+function grabEnd(ctrl){ctrl.userData.grabbing=false; ctrl.userData.grabbedObject=null; if(!ctrl.userData.rotate) setRayColor(ctrl,RAY_IDLE);}
+
+/* ---------------- RAYCAST ---------------- */
+function raycast(ctrl){
+  const origin=new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld);
+  const dir=new THREE.Vector3(0,0,-1).applyQuaternion(ctrl.quaternion);
+  const hits=new THREE.Raycaster(origin,dir).intersectObjects(grabbableObjects,true);
+  if(!hits.length) return null;
+  let obj=hits[0].object; while(!grabbableObjects.includes(obj)) obj=obj.parent;
+  return {objectRoot:obj,distance:hits[0].distance};
 }
 
-/* -------------------- GRAB -------------------- */
-function onSelectStart(ctrl){
-  const pos = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld);
-  const dir = new THREE.Vector3(0,0,-1).applyQuaternion(ctrl.quaternion);
-
-  const raycaster = new THREE.Raycaster(pos,dir);
-  const hits = raycaster.intersectObjects(grabbableObjects,true);
-  if(!hits.length) return;
-
-  let obj = hits[0].object;
-  while(!grabbableObjects.includes(obj)) obj = obj.parent;
-
-  ctrl.userData.grabbing = true;
-  ctrl.userData.object = obj;
-  ctrl.userData.distance = pos.distanceTo(hits[0].point);
-  ctrl.userData.ray.material.color.set(0xff0000);
-}
-
-function onSelectEnd(ctrl){
-  ctrl.userData.grabbing = false;
-  ctrl.userData.object = null;
-  ctrl.userData.ray.material.color.set(0xffff00);
-}
-
-/* -------------------- LOOP -------------------- */
-function animate(){
-  renderer.setAnimationLoop(render);
-}
-
+/* ---------------- LOOP ---------------- */
+function animate(){renderer.setAnimationLoop(render);}
 function render(){
-  [controller1, controller2].forEach(ctrl=>{
-    if(ctrl.userData.grabbing && ctrl.userData.object){
-      const pos = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld);
-      const dir = new THREE.Vector3(0,0,-1).applyQuaternion(ctrl.quaternion);
-      ctrl.userData.object.position.copy(
-        pos.clone().add(dir.multiplyScalar(ctrl.userData.distance))
-      );
+  const rightHit=raycast(rightController); const grabbed=rightController.userData.grabbedObject;
+  if(grabbed){setRayColor(rightController,RAY_ACTIVE);
+    const pos=new THREE.Vector3().setFromMatrixPosition(rightController.matrixWorld);
+    const dir=new THREE.Vector3(0,0,-1).applyQuaternion(rightController.quaternion);
+    grabbed.position.copy(pos.add(dir.multiplyScalar(rightController.userData.distance)));
+    if(rightController.userData.rotate) grabbed.rotation.y-=0.04;
+    const distance=grabbed.position.distanceTo(rightController.position);
+    updateRayLength(rightController,distance);
+  } else if(rightHit){const obj=rightHit.objectRoot;
+    if(rightController.userData.rotate){ obj.rotation.y-=0.04; setRayColor(rightController,RAY_ACTIVE);}
+    else setRayColor(rightController,RAY_HOVER);
+    updateRayLength(rightController,rightHit.distance);
+  } else { setRayColor(rightController,RAY_IDLE); updateRayLength(rightController,10);}
 
-      const rotSpeed = 0.04;
-      if(ctrl.userData.rotateRight) ctrl.userData.object.rotation.y -= rotSpeed;
-      if(ctrl.userData.rotateLeft) ctrl.userData.object.rotation.y += rotSpeed;
-    }
-  });
+  const leftHit=raycast(leftController);
+  if(leftHit){const obj=leftHit.objectRoot; const speed=0.01;
+    if(leftController.userData.scaleUp){ obj.scale.multiplyScalar(1+speed); setRayColor(leftController,RAY_ACTIVE);}
+    else if(leftController.userData.scaleDown){ obj.scale.multiplyScalar(1-speed); setRayColor(leftController,RAY_ACTIVE);}
+    else setRayColor(leftController,RAY_HOVER);
+    obj.scale.clamp(new THREE.Vector3(0.1,0.1,0.1), new THREE.Vector3(5,5,5));
+    updateRayLength(leftController,leftHit.distance);
+  } else {setRayColor(leftController,RAY_IDLE); updateRayLength(leftController,10);}
+
   renderer.render(scene,camera);
 }
 
-function onResize(){
-  camera.aspect = window.innerWidth/window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
+/* ---------------- RESIZE ---------------- */
+function onResize(){camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight);}
 </script>
-
 </body>
 </html>
