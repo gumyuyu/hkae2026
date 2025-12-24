@@ -7,7 +7,7 @@ const app = express();
 const PORT = 8000;
 
 // Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
 // HTTPS options
 const options = {
