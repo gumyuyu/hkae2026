@@ -113,6 +113,18 @@
 import * as THREE from './three/three.module.js';
 import { GLTFLoader } from './three/GLTFLoader.js';
 
+/* ===== VOICE COMMANDS (NEW) ===== */
+// Import TensorFlow.js core
+// import * as tf from 'https://cdn.skypack.dev/@tensorflow/tfjs-core@4.12.0';
+// // Import WebGPU backend
+// import 'https://cdn.skypack.dev/@tensorflow/tfjs-backend-webgpu@4.12.0';
+// // Import speech-commands ESM build from Skypack
+// import * as speechCommands from 'https://cdn.skypack.dev/@tensorflow-models/speech-commands@0.5.4';
+
+/* ===== END VOICE COMMANDS (NEW) ===== */
+
+
+
 let scene, camera, renderer;
 let leftController, rightController;
 let ground;
@@ -128,6 +140,10 @@ const RAY_IDLE   = 0xffff00;
 const RAY_HOVER  = 0x00ffff;
 const RAY_ACTIVE = 0xff0000;
 
+// /* ===== VOICE COMMANDS (NEW) ===== */
+// let recognizer = null;
+// /* ===== END VOICE COMMANDS (NEW) ===== */
+
 init();
 animate();
 
@@ -135,8 +151,6 @@ animate();
 function init() {
 
   scene = new THREE.Scene();
-
-  /* Bright modern sky */
   scene.background = new THREE.Color(0xcfe8ff);
   scene.fog = new THREE.Fog(0xcfe8ff, 8, 25);
 
@@ -155,7 +169,6 @@ function init() {
 
   document.body.appendChild(renderer.domElement);
 
-  /* Lighting: clean + modern */
   scene.add(new THREE.HemisphereLight(0xffffff, 0xaec6ff, 1.2));
 
   const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -168,7 +181,6 @@ function init() {
   fillLight.position.set(-5, 4, -3);
   scene.add(fillLight);
 
-  /* Floor */
   ground = new THREE.Mesh(
     new THREE.PlaneGeometry(30,30),
     new THREE.MeshStandardMaterial({
@@ -181,7 +193,6 @@ function init() {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  /* Controllers */
   leftController = renderer.xr.getController(0);
   rightController = renderer.xr.getController(1);
   scene.add(leftController, rightController);
@@ -189,19 +200,16 @@ function init() {
   addControllerRay(leftController);
   addControllerRay(rightController);
 
-  /* Right controller */
   rightController.addEventListener('selectstart', () => grabStart(rightController));
   rightController.addEventListener('selectend',   () => grabEnd(rightController));
   rightController.addEventListener('squeezestart', () => rightController.userData.rotate = true);
   rightController.addEventListener('squeezeend',   () => rightController.userData.rotate = false);
 
-  /* Left controller */
   leftController.addEventListener('selectstart', () => leftController.userData.scaleUp = true);
   leftController.addEventListener('selectend',   () => leftController.userData.scaleUp = false);
   leftController.addEventListener('squeezestart',() => leftController.userData.scaleDown = true);
   leftController.addEventListener('squeezeend',  () => leftController.userData.scaleDown = false);
 
-  /* UI */
   document.getElementById('sendPrompt').onclick = sendPrompt;
   document.getElementById('promptInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') sendPrompt();
@@ -219,6 +227,10 @@ function init() {
   });
 
   window.addEventListener('resize', onResize);
+
+  // /* ===== VOICE COMMANDS (NEW) ===== */
+  // initVoiceCommands();
+  // /* ===== END VOICE COMMANDS (NEW) ===== */
 }
 
 /* ---------------- XR ---------------- */
@@ -249,26 +261,48 @@ async function startXR(){
 }
 
 /* ---------------- SPAWN ---------------- */
-function sendPrompt(){
+// Define the sequence of assets
+const assetsSequence = [
+  'assets/car_image.glb',
+  'assets/car.glb',
+  'assets/engine.glb',
+  'assets/engineblock.glb',
+  'assets/crankshaft.glb',
+  'assets/piston.glb',
+  'assets/tyre.glb',
+  'assets/brake.glb'
+];
+
+// Counter to track which asset to load next
+let assetCounter = 0;
+
+function sendPrompt() {
   const input = document.getElementById('promptInput');
   if (!input.value.trim()) return;
 
-  loader.load('textured_mesh.glb', gltf => {
+  const currentAsset = assetsSequence[assetCounter];
+
+  loader.load(currentAsset, gltf => {
     const wrapper = new THREE.Group();
     wrapper.position.copy(camera.position)
-      .add(new THREE.Vector3(0,0,-2).applyQuaternion(camera.quaternion));
+      .add(new THREE.Vector3(0, 0, -2).applyQuaternion(camera.quaternion));
     wrapper.scale.setScalar(0.5);
 
+    // Ensure no black: fix materials
     gltf.scene.traverse(n => {
-      if (n.isMesh) {
-        n.castShadow = true;
-        n.receiveShadow = true;
+      if (n.isMesh && n.material) {
+        n.material.side = THREE.DoubleSide;
+        if ('metalness' in n.material) n.material.metalness = 0.3;
+        if ('roughness' in n.material) n.material.roughness = 0.7;
+        n.material.needsUpdate = true;
       }
     });
 
     wrapper.add(gltf.scene);
     scene.add(wrapper);
     grabbableObjects.push(wrapper);
+
+    assetCounter = (assetCounter + 1) % assetsSequence.length;
   });
 
   input.value = '';
@@ -326,12 +360,10 @@ function animate(){
 }
 
 function render() {
-  // RIGHT CONTROLLER
   const rightHit = raycast(rightController);
   const grabbed = rightController.userData.grabbedObject;
 
   if (grabbed) {
-    // Grab + move
     setRayColor(rightController, RAY_ACTIVE);
 
     const pos = new THREE.Vector3().setFromMatrixPosition(rightController.matrixWorld);
@@ -344,7 +376,6 @@ function render() {
     updateRayLength(rightController, rightController.userData.distance);
 
   } else if (rightHit) {
-    // Hovering: can rotate even if not grabbing
     const obj = rightHit.objectRoot;
 
     if (rightController.userData.rotate) obj.rotation.y -= 0.04;
@@ -357,7 +388,6 @@ function render() {
     updateRayLength(rightController, 10);
   }
 
-  // LEFT CONTROLLER (scale)
   const leftHit = raycast(leftController);
   if (leftHit) {
     const obj = leftHit.objectRoot;
@@ -376,7 +406,6 @@ function render() {
   renderer.render(scene, camera);
 }
 
-
 /* ---------------- FLOOR CLAMP ---------------- */
 function clampToFloor(obj){
   const box = new THREE.Box3().setFromObject(obj);
@@ -392,6 +421,65 @@ function onResize(){
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
+
+// /* ===== VOICE COMMANDS (NEW) ===== */
+
+// async function initVoiceCommands() {
+//   console.log('[WebGPU available]', 'gpu' in navigator);
+
+//   await tf.setBackend('webgpu');
+//   await tf.ready();
+
+//   console.log('[TFJS backend]', tf.getBackend());
+
+//   recognizer = speechCommands.create('BROWSER_FFT');
+//   await recognizer.ensureModelLoaded();
+
+//   recognizer.listen(result => {
+//     const scores = result.scores;
+//     const labels = recognizer.wordLabels();
+//     const i = scores.indexOf(Math.max(...scores));
+//     if (scores[i] < 0.85) return;
+//     handleVoiceCommand(labels[i]);
+//   }, {
+//     probabilityThreshold: 0.8,
+//     overlapFactor: 0.5
+//   });
+// }
+
+// function getPointedObject() {
+//   const hit = raycast(rightController);
+//   return hit ? hit.objectRoot : null;
+// }
+
+// function handleVoiceCommand(word) {
+//   const obj = getPointedObject();
+//   if (!obj) return;
+
+//   switch (word) {
+//     case 'go':   // rotate
+//       obj.rotation.y -= THREE.MathUtils.degToRad(15);
+//       break;
+//     case 'up':   // scale up
+//       obj.scale.multiplyScalar(1.15);
+//       obj.scale.clampScalar(0.1, 5);
+//       clampToFloor(obj);
+//       break;
+//     case 'down': // scale down
+//       obj.scale.multiplyScalar(0.85);
+//       obj.scale.clampScalar(0.1, 5);
+//       clampToFloor(obj);
+//       break;
+//     case 'stop': // delete
+//       scene.remove(obj);
+//       const i = grabbableObjects.indexOf(obj);
+//       if (i !== -1) grabbableObjects.splice(i, 1);
+//       break;
+//   }
+// }
+
+// /* ===== END VOICE COMMANDS (NEW) ===== */
+
 </script>
 
 </body>
