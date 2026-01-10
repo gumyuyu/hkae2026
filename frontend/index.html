@@ -116,8 +116,6 @@
 <script type="module">
 import * as THREE from './three/three.module.js';
 import { GLTFLoader } from './three/GLTFLoader.js';
-
-/* === NEW CODE: Whisper / Transformers imports === */
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
 
@@ -136,7 +134,6 @@ const RAY_IDLE   = 0xffff00;
 const RAY_HOVER  = 0x00ffff;
 const RAY_ACTIVE = 0xff0000;
 
-/* === NEW CODE: Whisper state === */
 let transcriber = null;
 let mediaRecorder = null;
 let audioChunks = [];
@@ -215,7 +212,6 @@ function init() {
 
   document.getElementById('xrButton').onclick = toggleXRSession;
 
-  /* === NEW CODE: Record button handler === */
   document.getElementById('recordButton').onclick = toggleRecording;
 
   const toggle = document.getElementById('arvrToggle');
@@ -231,7 +227,7 @@ function init() {
 
 }
 
-/* === NEW CODE: Toggle recording === */
+/* --------- Toggle recording --------- */
 async function toggleRecording() {
   const btn = document.getElementById('recordButton');
 
@@ -251,7 +247,8 @@ async function toggleRecording() {
   }
 }
 
-/* === NEW CODE: Robust Whisper audio processing === */
+
+/* --------- Whisper audio processing --------- */
 async function processAudio() {
   const blob = new Blob(audioChunks, { type: 'audio/webm' });
   const arrayBuffer = await blob.arrayBuffer();
@@ -286,7 +283,7 @@ async function processAudio() {
       'Xenova/whisper-tiny',
       {
         device: 'webgpu',
-        chunk_length_s: 30,   // IMPORTANT
+        chunk_length_s: 30,
         stride_length_s: 5
       }
     );
@@ -300,8 +297,6 @@ async function processAudio() {
     document.getElementById('promptInput').value = result.text;
   }
 }
-
-
 
 /* ---------------- XR ---------------- */
 async function toggleXRSession(){
@@ -466,13 +461,18 @@ function render() {
     if (leftController.userData.scaleDown) obj.scale.multiplyScalar(1-s);
     obj.scale.clampScalar(0.1, 5);
     clampToFloor(obj);
-    setRayColor(leftController, RAY_HOVER);
+
+    if (leftController.userData.scaleUp || leftController.userData.scaleDown) {
+      setRayColor(leftController, RAY_ACTIVE);
+    } else {
+      setRayColor(leftController, RAY_HOVER);
+    }
+
     updateRayLength(leftController, leftHit.distance);
   } else {
     setRayColor(leftController, RAY_IDLE);
     updateRayLength(leftController, 10);
   }
-
   renderer.render(scene, camera);
 }
 
