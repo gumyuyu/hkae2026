@@ -97,6 +97,10 @@
 <div id="ui">
   <input id="promptInput" placeholder="Describe object...">
   <button id="sendPrompt">Send</button>
+
+  <!-- === NEW CODE: Record button === -->
+  <button id="recordButton">Record</button>
+
   <button id="xrButton">Enter XR</button>
 
   <div class="switch-container">
@@ -113,8 +117,8 @@
 import * as THREE from './three/three.module.js';
 import { GLTFLoader } from './three/GLTFLoader.js';
 
-
-
+/* === NEW CODE: Whisper / Transformers imports === */
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
 
 let scene, camera, renderer;
@@ -132,6 +136,11 @@ const RAY_IDLE   = 0xffff00;
 const RAY_HOVER  = 0x00ffff;
 const RAY_ACTIVE = 0xff0000;
 
+/* === NEW CODE: Whisper state === */
+let transcriber = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
 
 init();
 animate();
@@ -206,6 +215,9 @@ function init() {
 
   document.getElementById('xrButton').onclick = toggleXRSession;
 
+  /* === NEW CODE: Record button handler === */
+  document.getElementById('recordButton').onclick = toggleRecording;
+
   const toggle = document.getElementById('arvrToggle');
   toggle.addEventListener('change', async e => {
     xrMode = e.target.checked ? 'AR' : 'VR';
@@ -218,6 +230,78 @@ function init() {
   window.addEventListener('resize', onResize);
 
 }
+
+/* === NEW CODE: Toggle recording === */
+async function toggleRecording() {
+  const btn = document.getElementById('recordButton');
+
+  if (!isRecording) {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.onstop = processAudio;
+    mediaRecorder.start();
+    isRecording = true;
+    btn.textContent = 'Stop Recording';
+  } else {
+    mediaRecorder.stop();
+    isRecording = false;
+    btn.textContent = 'Record';
+  }
+}
+
+/* === NEW CODE: Robust Whisper audio processing === */
+async function processAudio() {
+  const blob = new Blob(audioChunks, { type: 'audio/webm' });
+  const arrayBuffer = await blob.arrayBuffer();
+
+  const audioContext = new AudioContext({ sampleRate: 16000 });
+  await audioContext.resume(); // IMPORTANT on Quest
+
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+  // Mix to mono if needed
+  let pcm;
+  if (audioBuffer.numberOfChannels === 1) {
+    pcm = audioBuffer.getChannelData(0);
+  } else {
+    const ch0 = audioBuffer.getChannelData(0);
+    const ch1 = audioBuffer.getChannelData(1);
+    pcm = new Float32Array(ch0.length);
+    for (let i = 0; i < ch0.length; i++) {
+      pcm[i] = 0.5 * (ch0[i] + ch1[i]);
+    }
+  }
+
+  // Guard: too short = Whisper returns nothing
+  if (pcm.length < 16000) {
+    console.warn('Audio too short for Whisper');
+    return;
+  }
+
+  if (!transcriber) {
+    transcriber = await pipeline(
+      'automatic-speech-recognition',
+      'Xenova/whisper-tiny',
+      {
+        device: 'webgpu',
+        chunk_length_s: 30,   // IMPORTANT
+        stride_length_s: 5
+      }
+    );
+  }
+
+  const result = await transcriber(pcm);
+
+  console.log('Whisper result:', result);
+
+  if (result?.text?.trim()) {
+    document.getElementById('promptInput').value = result.text;
+  }
+}
+
+
 
 /* ---------------- XR ---------------- */
 async function toggleXRSession(){
