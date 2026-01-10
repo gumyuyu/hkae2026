@@ -140,9 +140,6 @@ const RAY_IDLE   = 0xffff00;
 const RAY_HOVER  = 0x00ffff;
 const RAY_ACTIVE = 0xff0000;
 
-// /* ===== VOICE COMMANDS (NEW) ===== */
-// let recognizer = null;
-// /* ===== END VOICE COMMANDS (NEW) ===== */
 
 init();
 animate();
@@ -228,9 +225,6 @@ function init() {
 
   window.addEventListener('resize', onResize);
 
-  // /* ===== VOICE COMMANDS (NEW) ===== */
-  // initVoiceCommands();
-  // /* ===== END VOICE COMMANDS (NEW) ===== */
 }
 
 /* ---------------- XR ---------------- */
@@ -421,64 +415,6 @@ function onResize(){
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
-
-// /* ===== VOICE COMMANDS (NEW) ===== */
-
-// async function initVoiceCommands() {
-//   console.log('[WebGPU available]', 'gpu' in navigator);
-
-//   await tf.setBackend('webgpu');
-//   await tf.ready();
-
-//   console.log('[TFJS backend]', tf.getBackend());
-
-//   recognizer = speechCommands.create('BROWSER_FFT');
-//   await recognizer.ensureModelLoaded();
-
-//   recognizer.listen(result => {
-//     const scores = result.scores;
-//     const labels = recognizer.wordLabels();
-//     const i = scores.indexOf(Math.max(...scores));
-//     if (scores[i] < 0.85) return;
-//     handleVoiceCommand(labels[i]);
-//   }, {
-//     probabilityThreshold: 0.8,
-//     overlapFactor: 0.5
-//   });
-// }
-
-// function getPointedObject() {
-//   const hit = raycast(rightController);
-//   return hit ? hit.objectRoot : null;
-// }
-
-// function handleVoiceCommand(word) {
-//   const obj = getPointedObject();
-//   if (!obj) return;
-
-//   switch (word) {
-//     case 'go':   // rotate
-//       obj.rotation.y -= THREE.MathUtils.degToRad(15);
-//       break;
-//     case 'up':   // scale up
-//       obj.scale.multiplyScalar(1.15);
-//       obj.scale.clampScalar(0.1, 5);
-//       clampToFloor(obj);
-//       break;
-//     case 'down': // scale down
-//       obj.scale.multiplyScalar(0.85);
-//       obj.scale.clampScalar(0.1, 5);
-//       clampToFloor(obj);
-//       break;
-//     case 'stop': // delete
-//       scene.remove(obj);
-//       const i = grabbableObjects.indexOf(obj);
-//       if (i !== -1) grabbableObjects.splice(i, 1);
-//       break;
-//   }
-// }
-
-// /* ===== END VOICE COMMANDS (NEW) ===== */
 
 </script>
 
