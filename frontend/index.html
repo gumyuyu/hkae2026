@@ -133,11 +133,16 @@ const FLOOR_Y = 0;
 const RAY_IDLE   = 0xffff00;
 const RAY_HOVER  = 0x00ffff;
 const RAY_ACTIVE = 0xff0000;
+const RAY_RECORDING = 0xff00ff; 
 
 let transcriber = null;
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
+
+let speechMode = 'PROMPT'; // 'PROMPT' | 'COMMAND'
+let hoveredObjectForSpeech = null;
+let autoRecording = false;
 
 init();
 animate();
@@ -232,19 +237,31 @@ async function toggleRecording() {
   const btn = document.getElementById('recordButton');
 
   if (!isRecording) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioChunks = [];
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-    mediaRecorder.onstop = processAudio;
-    mediaRecorder.start();
-    isRecording = true;
+    speechMode = 'PROMPT'; 
+    await startRecordingInternal(); 
     btn.textContent = 'Stop Recording';
   } else {
-    mediaRecorder.stop();
-    isRecording = false;
+    stopRecordingInternal(); 
     btn.textContent = 'Record';
   }
+}
+
+async function startRecordingInternal() {
+  if (isRecording) return;
+
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  audioChunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+  mediaRecorder.onstop = processAudio;
+  mediaRecorder.start();
+  isRecording = true;
+}
+
+function stopRecordingInternal() {
+  if (!isRecording) return;
+  mediaRecorder.stop();
+  isRecording = false;
 }
 
 
@@ -293,10 +310,101 @@ async function processAudio() {
 
   console.log('Whisper result:', result);
 
-  if (result?.text?.trim()) {
+  const text = result?.text?.toLowerCase().trim();
+  if (!text) return;
+
+  if (speechMode === 'PROMPT') {
     document.getElementById('promptInput').value = result.text;
   }
+
+  if (speechMode === 'COMMAND' && hoveredObjectForSpeech) {
+    handleSpeechCommand(text, hoveredObjectForSpeech);
+  }
 }
+
+function handleSpeechCommand(text, obj) {
+  if (!obj) return;
+
+  const t = text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .trim();
+
+  /* ---------- SCALE UP / GROW ---------- */
+  if (
+    t.includes('scale up') ||
+    t.includes('bigger') ||
+    t.includes('big') ||
+    t.includes('larger') ||
+    t.includes('large') ||
+    t.includes('increase') ||
+    t.includes('increase size') ||
+    t.includes('make it bigger') ||
+    t.includes('make it big') ||
+    t.includes('grow') ||
+    t.includes('enlarge') ||
+    t.includes('expand') ||
+    t.includes('inflate') ||
+    t.includes('zoom in')
+  ) {
+    obj.scale.multiplyScalar(1.2);
+  }
+
+  /* ---------- SCALE DOWN / SHRINK ---------- */
+  else if (
+    t.includes('scale down') ||
+    t.includes('smaller') ||
+    t.includes('small') ||
+    t.includes('shrink') ||
+    t.includes('reduce') ||
+    t.includes('reduce size') ||
+    t.includes('make it smaller') ||
+    t.includes('make it small') ||
+    t.includes('decrease') ||
+    t.includes('compress') ||
+    t.includes('deflate') ||
+    t.includes('zoom out')
+  ) {
+    obj.scale.multiplyScalar(0.8);
+  }
+
+  /* ---------- ROTATE ---------- */
+  else if (
+    t.includes('rotate') ||
+    t.includes('rotation') ||
+    t.includes('turn') ||
+    t.includes('twist') ||
+    t.includes('spin') ||
+    t.includes('roll')
+  ) {
+    // Optional: support "rotate 30"
+    const match = t.match(/(\d+)/);
+    const degrees = match ? parseInt(match[1], 10) : 15;
+    obj.rotation.y += THREE.MathUtils.degToRad(degrees);
+  }
+
+  /* ---------- DELETE / REMOVE ---------- */
+  else if (
+    t.includes('delete') ||
+    t.includes('remove') ||
+    t.includes('destroy') ||
+    t.includes('erase') ||
+    t.includes('discard') ||
+    t.includes('trash') ||
+    t.includes('get rid') ||
+    t.includes('clear') ||
+    t.includes('kill')
+  ) {
+    scene.remove(obj);
+    const idx = grabbableObjects.indexOf(obj);
+    if (idx !== -1) grabbableObjects.splice(idx, 1);
+    return;
+  }
+
+  clampToFloor(obj);
+}
+
+
 
 /* ---------------- XR ---------------- */
 async function toggleXRSession(){
@@ -426,16 +534,64 @@ function animate(){
 
 function render() {
   const rightHit = raycast(rightController);
-  const grabbed = rightController.userData.grabbedObject;
+  const leftHit  = raycast(leftController);
 
-  if (grabbed) {
+  const hoveredByRight = rightHit ? rightHit.objectRoot : null;
+  const hoveredByLeft  = leftHit  ? leftHit.objectRoot  : null;
+
+  hoveredObjectForSpeech = hoveredByRight || hoveredByLeft;
+
+  /* ---------- SPEECH COMBO DETECTION ---------- */
+  let comboActive = false;
+
+  if (
+    hoveredByRight &&
+    rightController.userData.grabbedObject &&
+    rightController.userData.rotate
+  ) {
+    comboActive = true;
+  }
+
+  if (
+    hoveredByLeft &&
+    leftController.userData.scaleUp &&
+    leftController.userData.scaleDown
+  ) {
+    comboActive = true;
+  }
+
+  /* ---------- RECORDING STATE ---------- */
+  if (comboActive && !autoRecording) {
+    speechMode = 'COMMAND';
+    autoRecording = true;
+    startRecordingInternal();
+  }
+
+  if (!comboActive && autoRecording) {
+    autoRecording = false;
+    stopRecordingInternal();
+  }
+
+  /* ---------- RIGHT CONTROLLER ---------- */
+  if (comboActive && hoveredByRight) {
+    // Voice-command mode: no manipulation
+    setRayColor(rightController, RAY_RECORDING);
+    updateRayLength(rightController, rightHit.distance);
+
+  } else if (rightController.userData.grabbedObject) {
     setRayColor(rightController, RAY_ACTIVE);
 
+    const grabbed = rightController.userData.grabbedObject;
     const pos = new THREE.Vector3().setFromMatrixPosition(rightController.matrixWorld);
-    const dir = new THREE.Vector3(0,0,-1).applyQuaternion(rightController.quaternion);
-    grabbed.position.copy(pos.add(dir.multiplyScalar(rightController.userData.distance)));
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(rightController.quaternion);
 
-    if (rightController.userData.rotate) grabbed.rotation.y -= 0.04;
+    grabbed.position.copy(
+      pos.add(dir.multiplyScalar(rightController.userData.distance))
+    );
+
+    if (rightController.userData.rotate) {
+      grabbed.rotation.y -= 0.04;
+    }
 
     clampToFloor(grabbed);
     updateRayLength(rightController, rightController.userData.distance);
@@ -443,9 +599,14 @@ function render() {
   } else if (rightHit) {
     const obj = rightHit.objectRoot;
 
-    if (rightController.userData.rotate) obj.rotation.y -= 0.04;
+    if (rightController.userData.rotate) {
+      obj.rotation.y -= 0.04;
+    }
 
-    setRayColor(rightController, rightController.userData.rotate ? RAY_ACTIVE : RAY_HOVER);
+    setRayColor(
+      rightController,
+      rightController.userData.rotate ? RAY_ACTIVE : RAY_HOVER
+    );
     updateRayLength(rightController, rightHit.distance);
 
   } else {
@@ -453,12 +614,19 @@ function render() {
     updateRayLength(rightController, 10);
   }
 
-  const leftHit = raycast(leftController);
-  if (leftHit) {
+  /* ---------- LEFT CONTROLLER ---------- */
+  if (comboActive && hoveredByLeft) {
+    // Voice-command mode: no manipulation
+    setRayColor(leftController, RAY_RECORDING);
+    updateRayLength(leftController, leftHit.distance);
+
+  } else if (leftHit) {
     const obj = leftHit.objectRoot;
     const s = 0.01;
-    if (leftController.userData.scaleUp) obj.scale.multiplyScalar(1+s);
-    if (leftController.userData.scaleDown) obj.scale.multiplyScalar(1-s);
+
+    if (leftController.userData.scaleUp)   obj.scale.multiplyScalar(1 + s);
+    if (leftController.userData.scaleDown) obj.scale.multiplyScalar(1 - s);
+
     obj.scale.clampScalar(0.1, 5);
     clampToFloor(obj);
 
@@ -469,12 +637,15 @@ function render() {
     }
 
     updateRayLength(leftController, leftHit.distance);
+
   } else {
     setRayColor(leftController, RAY_IDLE);
     updateRayLength(leftController, 10);
   }
+
   renderer.render(scene, camera);
 }
+
 
 /* ---------------- FLOOR CLAMP ---------------- */
 function clampToFloor(obj){
