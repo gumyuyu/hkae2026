@@ -2,9 +2,9 @@ import io
 import base64
 import torch
 from diffusers import ZImagePipeline, FlowMatchEulerDiscreteScheduler
-# from sdnq import SDNQConfig # import sdnq to register it into diffusers and transformers
-# from sdnq.common import use_torch_compile as triton_is_available
-# from sdnq.loader import apply_sdnq_options_to_model
+from sdnq import SDNQConfig # import sdnq to register it into diffusers and transformers
+from sdnq.common import use_torch_compile as triton_is_available
+from sdnq.loader import apply_sdnq_options_to_model
 from pathlib import Path
 import uuid
 import trimesh
@@ -173,3 +173,4 @@ def generate_image_base64(
 
     return base64.b64encode(glb_bytes).decode("utf-8")
 
+    return base64.b64encode(glb_bytes).decode("utf-8")
