@@ -31,13 +31,13 @@ RUN pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url h
 # --- Step 6: Install Hunyuan3D dependencies ---
 WORKDIR /app/inner_layer/models/hunyuan3D
 RUN pip install --no-cache-dir -r hunyuan3d_requirements.txt
-
-# --- Step 7: Texture & differentiable renderer setup ---
-WORKDIR /app/inner_layer/models/hunyuan3D/hy3dpaint/custom_rasterizer
 RUN pip install -e .
+# --- Step 7: Texture & differentiable renderer setup ---
+WORKDIR /app/inner_layer/models/hunyuan3D/hy3dgen/texgen/custom_rasterizer
+RUN python3 setup.py install
 
-WORKDIR /app/inner_layer/models/hunyuan3D/hy3dpaint/DifferentiableRenderer
-RUN bash compile_mesh_painter.sh
+WORKDIR /app/inner_layer/models/hunyuan3D/hy3dgen/texgen/differentiable_renderer
+RUN python3 setup.py install
 
 # --- Step 8: Back to app root ---
 WORKDIR /app
