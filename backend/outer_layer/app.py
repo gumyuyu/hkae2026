@@ -2,10 +2,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
 from outer_layer.ai_agent import AIAgent
-
+import os
+from fastapi import HTTPException, Request
 
 # --- Initialize the AI Agent globally ---
-agent = AIAgent(model="gpt-oss:20b-cloud", base_url="http://localhost:11434")
+agent = AIAgent(model="openai/gpt-oss-120b")
 
 
 # --- Lifecycle management using lifespan (modern replacement for @on_event) ---
@@ -33,13 +34,13 @@ class InputData(BaseModel):
 
 
 # --- API endpoint for frontend ---
+API_KEY = os.getenv("MY_API_KEY")
+
 @app.post("/generate")
-async def generate(payload: InputData):
-    """
-    Accepts text or image_base64 input from the frontend.
-    Sends the payload to the AI Agent, which uses GPT-OSS to decide which MCP tool to call.
-    Returns the MCP tool result.
-    """
+async def generate(payload: InputData, request: Request):
+    auth_header = request.headers.get("Authorization")
+    if auth_header != f"Bearer {API_KEY}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
     result = await agent.route_request(payload.dict(exclude_none=True))
     return result
 

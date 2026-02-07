@@ -1,156 +1,52 @@
-import io
 import base64
-import time
+import os
 from pathlib import Path
+from gradio_client import Client, handle_file
 
-import torch
-from PIL import Image
-
-from .hy3dgen.rembg import BackgroundRemover
-from .hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
-from .hy3dgen.texgen import Hunyuan3DPaintPipeline
-from pathlib import Path
-import uuid
-# from mmgp import offload, profile_type
 def ensure_dir(path: str):
     Path(path).mkdir(parents=True, exist_ok=True)
 
-
-# Globals (lazy-loaded models)
-_hunyuan_shape = None
-_hunyuan_texture = None
-_rembg = None
-
-
-# -------------------------
-# Device Selection
-# -------------------------
-def get_best_device():
-    if torch.cuda.is_available():
-        return "cuda"
-    elif torch.version.hip is not None:  # ROCm (AMD)
-        return "hip"
-    elif torch.backends.mps.is_available():
-        return "mps"
-    elif torch.backends.mps.is_built():  # fallback in case of MPS build but not available
-        return "mps"
-    elif torch.backends.opencl.is_available():  # not always present, but check
-        return "opencl"
-    elif torch.has_mps:  # just in case for Apple
-        return "mps"
-    else:
-        return "cpu"
-
-
-# -------------------------
-# Lazy Loader for Rembg
-# -------------------------
-def get_rembg():
-    global _rembg
-    if _rembg is None:
-        print("[Hunyuan] Loading background remover...")
-        _rembg = BackgroundRemover()
-    return _rembg
-
-
-# -------------------------
-# Lazy Loader for Hunyuan 3D
-# -------------------------
-def get_hunyuan_shape_model():
-    global _hunyuan_shape
-
-    if _hunyuan_shape is None:
-        device = get_best_device()
-        print(f"[Hunyuan] Loading Hunyuan 3D Shape Model on {device}...")
-
-        _hunyuan_shape = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-            'tencent/Hunyuan3D-2mini',
-            subfolder='hunyuan3d-dit-v2-mini',
-            variant='fp16'
-        )
-        print("[Hunyuan] Finished Loading Hunyuan 3D Shape Model")
-
-    return _hunyuan_shape
-
-
-def get_hunyuan_texture_model():
-    global _hunyuan_texture
-
-    if _hunyuan_texture is None:
-        print("[Hunyuan] Loading Hunyuan Texture Model...")
-        _hunyuan_texture = Hunyuan3DPaintPipeline.from_pretrained(
-            "tencent/Hunyuan3D-2"
-        )
-        print("[Hunyuan] Finished loading Hunyuan Texture Model")
-        # print("[Hunyuan] Offloading Hunyuan Texture Model for MMGP")
-        # # offload.profile(_hunyuan_texture, profile_type.VerylowRAM_LowVRAM )
-        # print("[Hunyuan] Finished Offloading Hunyuan Texture Model for MMGP")
-        
-    return _hunyuan_texture
-
-
-# -------------------------
-# Main Function: image → GLB (base64)
-# -------------------------
-def generate_3d_object_from_image_base64(image_b64: str) -> str:
+def generate_3d_object_from_image_base64(image_path: str) -> str:
     """
-    Takes a base64 PNG/JPG image
-    → removes background (if needed)
-    → creates 3D mesh (GLB)
-    → textures it
-    → returns base64 GLB
+    Converts a base64 image string to PNG, generates a 3D object using Hunyuan3D,
+    saves the textured mesh (.glb) in output/shapes/, and returns its base64 string.
     """
+    # --- Initialize Hunyuan3D client ---
+    client = Client("tencent/Hunyuan3D-2.1", token=os.getenv("HF_TOKEN"))
 
-    # Convert b64 → PIL image
-    img_bytes = base64.b64decode(image_b64)
-    image = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+    # --- Predict 3D object ---
+    result = client.predict(
+        api_name="/generation_all",
+        image=handle_file(image_path),
+        mv_image_front=None,
+        mv_image_back=None,
+        mv_image_left=None,
+        mv_image_right=None,
+        steps=30,
+        guidance_scale=5,
+        seed=1234,
+        octree_resolution=256,
+        check_box_rembg=True,
+        num_chunks=8000,
+        randomize_seed=True
+    )
 
-    # Background removal if needed
-    if image.mode == "RGB":
-        print("[Hunyuan] Running Rembg...")
-        rembg = get_rembg()
-        image = rembg(image)
+    # The generated GLB path returned by Hunyuan3D
+    textured_mesh_path = result[1]['value']
 
-    
-
-    # Run Hunyuan 3D Shape Model
-    shape_model = get_hunyuan_shape_model()
-
-    print("[Hunyuan] Generating 3D shape…")
-    start_time = time.time()
-    mesh = shape_model(
-        image=image,
-        num_inference_steps=50,
-        octree_resolution=380,
-        num_chunks=20000,
-        generator=torch.manual_seed(42),
-        output_type="trimesh",
-    )[0]
-    print(f"[Hunyuan] Shape gen took {time.time() - start_time:.2f} sec")
-    
-    glb_bytes = mesh.export(file_type="glb")
+    # --- Ensure output directory exists ---
     ensure_dir("output/shapes")
-    filename = f"hunyuan_{uuid.uuid4().hex}.glb"
-    filepath = Path("output/shapes") / filename
-    with open(filepath, "wb") as f:
-        f.write(glb_bytes)
-    print(f"[Hunyuan] Saved 3D shape to {filepath}")
+    filename = f"shape_{Path(textured_mesh_path).stem}_{os.urandom(4).hex()}.glb"
+    output_path = Path("output/shapes") / filename
 
-    # Run Texture Model
-    texture_model = get_hunyuan_texture_model()
-    print("[Hunyuan] Generating texture…")
-    start_time = time.time()
-    mesh = texture_model(mesh, image=image)
-    print(f"[Hunyuan] Texture gen took {time.time() - start_time:.2f} sec")
-    
-    glb_bytes = mesh.export(file_type="glb")
-    ensure_dir("output/textured_objects")
-    filename = f"hunyuan_{uuid.uuid4().hex}.glb"
-    filepath = Path("output/textured_objects") / filename
-    with open(filepath, "wb") as f:
-        f.write(glb_bytes)
-    print(f"[Hunyuan] Saved 3D textured object to {filepath}")
-    
-    return base64.b64encode(glb_bytes).decode("utf-8")
+    # --- Copy or move the generated GLB to output/shapes ---
+    with open(textured_mesh_path, "rb") as src_file, open(output_path, "wb") as dst_file:
+        dst_file.write(src_file.read())
 
-    
+    print(f"[3D] Saved GLB to {output_path}")
+
+    # --- Return base64 string of saved GLB ---
+    with open(output_path, "rb") as mesh_file:
+        mesh_b64 = base64.b64encode(mesh_file.read()).decode("utf-8")
+
+    return mesh_b64

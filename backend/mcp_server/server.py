@@ -18,7 +18,7 @@ class ImageInput(BaseModel):
     image_base64: str
 
 class ObjectFromTextInput(BaseModel):
-    text: str  
+    prompt: str
 
 
 # -----------------------------
@@ -29,7 +29,7 @@ mcp = FastMCP(name="VR Object Generator MCP")
 @mcp.tool(name="generate_image")
 def tool_generate_image(payload: TextPrompt):
     b64_image = generate_image_from_text(payload.prompt)
-    return {"image_base64": b64_image}
+    return {"object_base64": b64_image}
 
 @mcp.tool(name="generate_object")
 def tool_generate_object(payload: ImageInput):
@@ -40,7 +40,7 @@ def tool_generate_object(payload: ImageInput):
 @mcp.tool(name="generate_object_from_text")
 def tool_generate_object_from_text(payload: ObjectFromTextInput):
     """Text → Image → 3D object"""
-    b64_object = generate_object_from_text(payload.text)
+    b64_object = generate_object_from_text(payload.prompt)
     return {"object_base64": b64_object}
 
 
