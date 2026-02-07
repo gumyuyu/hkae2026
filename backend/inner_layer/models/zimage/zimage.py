@@ -2,9 +2,9 @@ import io
 import base64
 import torch
 from diffusers import ZImagePipeline, FlowMatchEulerDiscreteScheduler
-from sdnq import SDNQConfig # import sdnq to register it into diffusers and transformers
-from sdnq.common import use_torch_compile as triton_is_available
-from sdnq.loader import apply_sdnq_options_to_model
+# from sdnq import SDNQConfig # import sdnq to register it into diffusers and transformers
+# from sdnq.common import use_torch_compile as triton_is_available
+# from sdnq.loader import apply_sdnq_options_to_model
 from pathlib import Path
 import uuid
 import trimesh
@@ -108,17 +108,26 @@ def image_to_glb(image: Image.Image, thickness: float = 0.001) -> bytes:
     return mesh.export(file_type="glb")
 
 
-def generate_image_base64(prompt: str, height: int = 768, width: int = 768, steps: int = 50, seed: int = 5) -> str:
+def generate_image_base64(
+    prompt: str,
+    height: int = 768,
+    width: int = 768,
+    steps: int = 50,
+    seed: int = 5,
+    convert_to_glb: bool = False,
+) -> str:
     """
     Generate an image from text prompt using Z-Image-Turbo.
-    Returns base64-encoded PNG.
+    Returns:
+      - base64 PNG if convert_to_glb=False
+      - base64 GLB if convert_to_glb=True
     """
     pipe = get_zimage_pipeline()
 
     if seed is None:
         seed = torch.randint(0, 2**32, (1,)).item()
     print(f"Generating with seed {seed}...")
-    
+
     device = get_best_device()
 
     if device == "cuda":
@@ -141,19 +150,26 @@ def generate_image_base64(prompt: str, height: int = 768, width: int = 768, step
     image = result.images[0]
 
     ensure_dir("output/images")
-    filename = f"zimage_{uuid.uuid4().hex}.png"
-    filepath = Path("output/images") / filename
-    image.save(filepath)
-    print(f"[ZImage] Saved image to {filepath}")
+    img_name = f"zimage_{uuid.uuid4().hex}.png"
+    img_path = Path("output/images") / img_name
+    image.save(img_path)
+    print(f"[ZImage] Saved image to {img_path}")
 
+    # --- If GLB is NOT requested, return image ---
+    if not convert_to_glb:
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    # --- Convert to GLB only if requested ---
     glb_bytes = image_to_glb(image)
 
-    # Save GLB
-    ensure_dir("output/images")
     glb_name = f"zimage_{uuid.uuid4().hex}.glb"
-    with open(Path("output/images") / glb_name, "wb") as f:
+    glb_path = Path("output/images") / glb_name
+    with open(glb_path, "wb") as f:
         f.write(glb_bytes)
-    filepath = Path("output/images") / glb_name
-    print(f"[ZImage] Saved glb to {filepath}")
+
+    print(f"[ZImage] Saved glb to {glb_path}")
 
     return base64.b64encode(glb_bytes).decode("utf-8")
+
