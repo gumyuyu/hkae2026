@@ -120,7 +120,12 @@ def get_obj_from_str(string, reload=False):
 def instantiate_from_config(config, **kwargs):
     if "target" not in config:
         raise KeyError("Expected key `target` to instantiate.")
-    cls = get_obj_from_str(config["target"])
+    try:
+        target = config['target']
+        cls = get_obj_from_str(target)
+    except Exception as e:
+        target = config['target'].replace("hy3dshape", "hy3dgen.shapegen")
+        cls = get_obj_from_str(target)
     params = config.get("params", dict())
     kwargs.update(params)
     instance = cls(**kwargs)
@@ -137,7 +142,7 @@ class Hunyuan3DDiTPipeline:
         cls,
         ckpt_path,
         config_path,
-        device='cpu',
+        device='cuda',
         dtype=torch.float16,
         use_safetensors=None,
         **kwargs,
@@ -165,20 +170,17 @@ class Hunyuan3DDiTPipeline:
                     ckpt[model_name] = {}
                 ckpt[model_name][new_key] = value
         else:
-            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only= True)
+            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=True)
         # load model
-        from accelerate import init_empty_weights
-        with init_empty_weights():
-            model = instantiate_from_config(config['model'])
-            vae = instantiate_from_config(config['vae'])
-            conditioner = instantiate_from_config(config['conditioner'])
-            image_processor = instantiate_from_config(config['image_processor'])
-            scheduler = instantiate_from_config(config['scheduler'])
-        
-        model.load_state_dict(ckpt['model'], assign = True)
-        vae.load_state_dict(ckpt['vae'], assign = True)
+        model = instantiate_from_config(config['model'])
+        model.load_state_dict(ckpt['model'])
+        vae = instantiate_from_config(config['vae'])
+        vae.load_state_dict(ckpt['vae'], strict=False)
+        conditioner = instantiate_from_config(config['conditioner'])
         if 'conditioner' in ckpt:
-            conditioner.load_state_dict(ckpt['conditioner'], assign = True)
+            conditioner.load_state_dict(ckpt['conditioner'])
+        image_processor = instantiate_from_config(config['image_processor'])
+        scheduler = instantiate_from_config(config['scheduler'])
 
         model_kwargs = dict(
             vae=vae,
@@ -258,7 +260,7 @@ class Hunyuan3DDiTPipeline:
         enabled: bool = True,
         adaptive_kv_selection=True,
         topk_mode='mean',
-        mc_algo='dmc',
+        mc_algo='mc',
         replace_vae=True,
     ):
         if enabled:
@@ -699,10 +701,9 @@ class Hunyuan3DDiTFlowMatchingPipeline(Hunyuan3DDiTPipeline):
         callback = kwargs.pop("callback", None)
         callback_steps = kwargs.pop("callback_steps", None)
 
-        device =  torch.device("cuda")  #self.device
         self.set_surface_extractor(mc_algo)
 
-        # device = self.device
+        device = self.device
         dtype = self.dtype
         do_classifier_free_guidance = guidance_scale >= 0 and not (
             hasattr(self.model, 'guidance_embed') and

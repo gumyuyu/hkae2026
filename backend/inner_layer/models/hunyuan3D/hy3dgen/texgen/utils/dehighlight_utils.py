@@ -33,9 +33,8 @@ class Light_Shadow_Remover():
         pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(pipeline.scheduler.config)
         pipeline.set_progress_bar_config(disable=True)
 
-        # self.pipeline = pipeline.to(self.device, torch.float16)
-        self.pipeline = pipeline # Needed to avoid displaying the warning
-        
+        self.pipeline = pipeline.to(self.device, torch.float16)
+    
     def recorrect_rgb(self, src_image, target_image, alpha_channel, scale=0.95):
         
         def flat_and_mask(bgr, a):
@@ -52,7 +51,10 @@ class Light_Shadow_Remover():
         for i in range(3): 
             src_mean, src_stddev = torch.mean(src_flat[:, i]), torch.std(src_flat[:, i])
             target_mean, target_stddev = torch.mean(target_flat[:, i]), torch.std(target_flat[:, i])
-            corrected_bgr[:, :, i] = torch.clamp((src_image[:, :, i] - scale * src_mean) * (target_stddev / src_stddev) + scale * target_mean, 0, 1)
+            corrected_bgr[:, :, i] = torch.clamp(
+                (src_image[:, :, i] - scale * src_mean) * 
+                (target_stddev / src_stddev) + scale * target_mean, 
+                0, 1)
 
         src_mse = torch.mean((src_image - target_image) ** 2)
         modify_mse = torch.mean((corrected_bgr - target_image) ** 2)

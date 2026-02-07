@@ -12,7 +12,7 @@ torchvision
 #ConfigArgParse
 #ipdb
 omegaconf
-diso
+
 #sentencepiece
 tqdm
 
@@ -32,11 +32,9 @@ accelerate
 
 # Demo only
 gradio
-uvicorn
 fastapi
-mmgp
+uvicorn
 rembg
 onnxruntime
 #gevent
 #geventhttpclient
-pydantic
