@@ -444,6 +444,7 @@ function spawnGLB(url) {
       url,
       gltf => {
         const wrapper = new THREE.Group();
+
         wrapper.position
           .copy(camera.position)
           .add(new THREE.Vector3(0, 0, -2).applyQuaternion(camera.quaternion));
@@ -462,6 +463,9 @@ function spawnGLB(url) {
         scene.add(wrapper);
         grabbableObjects.push(wrapper);
 
+        // ✅ PUT IT HERE
+        wrapper.userData.isLoading = true;
+
         resolve(wrapper);
       },
       undefined,
@@ -470,16 +474,18 @@ function spawnGLB(url) {
   });
 }
 
-function replaceWrapperContent(wrapper, newScene) {
-  // Remove old model
-  while (wrapper.children.length > 0) {
-    const child = wrapper.children[0];
-    wrapper.remove(child);
-  }
 
-  // Add new model
+function replaceWrapperContent(wrapper, newScene) {
+  wrapper.userData.isLoading = false;
+
+  while (wrapper.children.length > 0) {
+    wrapper.remove(wrapper.children[0]);
+  }
+  wrapper.rotation.set(0, 0, 0);
+
   wrapper.add(newScene);
 }
+
 
 async function sendPrompt() {
   const input = document.getElementById("promptInput");
@@ -609,7 +615,14 @@ function render() {
   const hoveredByLeft  = leftHit  ? leftHit.objectRoot  : null;
 
   hoveredObjectForSpeech = hoveredByRight || hoveredByLeft;
-
+  
+  /* ---------- LOADING ROTATION ---------- */
+  grabbableObjects.forEach(obj => {
+    if (obj.userData?.isLoading) {
+      obj.rotation.z += 0.01;
+    }
+  });
+  
   /* ---------- SPEECH COMBO DETECTION ---------- */
   let comboActive = false;
 
