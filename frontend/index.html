@@ -144,6 +144,10 @@ let speechMode = 'PROMPT'; // 'PROMPT' | 'COMMAND'
 let hoveredObjectForSpeech = null;
 let autoRecording = false;
 
+const API_TOKEN = "super_secret_api_token_123"; // REPLACE with your actual token
+const SPACE_URL = "https://riasad-fyp-backend.hkbu.dev/generate";
+
+
 init();
 animate();
 
@@ -434,52 +438,117 @@ async function startXR(){
 }
 
 /* ---------------- SPAWN ---------------- */
-// Define the sequence of assets
-const assetsSequence = [
-  'assets/car_image.glb',
-  'assets/car.glb',
-  'assets/engine.glb',
-  'assets/engineblock.glb',
-  'assets/crankshaft.glb',
-  'assets/piston.glb',
-  'assets/tyre.glb',
-  'assets/brake.glb'
-];
+function spawnGLB(url) {
+  return new Promise((resolve, reject) => {
+    loader.load(
+      url,
+      gltf => {
+        const wrapper = new THREE.Group();
+        wrapper.position
+          .copy(camera.position)
+          .add(new THREE.Vector3(0, 0, -2).applyQuaternion(camera.quaternion));
+        wrapper.scale.setScalar(0.5);
 
-// Counter to track which asset to load next
-let assetCounter = 0;
+        gltf.scene.traverse(n => {
+          if (n.isMesh && n.material) {
+            n.material.side = THREE.DoubleSide;
+            if ("metalness" in n.material) n.material.metalness = 0.3;
+            if ("roughness" in n.material) n.material.roughness = 0.7;
+            n.material.needsUpdate = true;
+          }
+        });
 
-function sendPrompt() {
-  const input = document.getElementById('promptInput');
+        wrapper.add(gltf.scene);
+        scene.add(wrapper);
+        grabbableObjects.push(wrapper);
+
+        resolve(wrapper);
+      },
+      undefined,
+      reject
+    );
+  });
+}
+
+function replaceWrapperContent(wrapper, newScene) {
+  // Remove old model
+  while (wrapper.children.length > 0) {
+    const child = wrapper.children[0];
+    wrapper.remove(child);
+  }
+
+  // Add new model
+  wrapper.add(newScene);
+}
+
+async function sendPrompt() {
+  const input = document.getElementById("promptInput");
   if (!input.value.trim()) return;
 
-  const currentAsset = assetsSequence[assetCounter];
+  // 1. Spawn loading placeholder
+  let wrapper;
+  try {
+    wrapper = await spawnGLB("/assets/loading.glb");
+  } catch (e) {
+    console.error("Failed to load loading.glb", e);
+    return;
+  }
 
-  loader.load(currentAsset, gltf => {
-    const wrapper = new THREE.Group();
-    wrapper.position.copy(camera.position)
-      .add(new THREE.Vector3(0, 0, -2).applyQuaternion(camera.quaternion));
-    wrapper.scale.setScalar(0.5);
-
-    // Ensure no black: fix materials
-    gltf.scene.traverse(n => {
-      if (n.isMesh && n.material) {
-        n.material.side = THREE.DoubleSide;
-        if ('metalness' in n.material) n.material.metalness = 0.3;
-        if ('roughness' in n.material) n.material.roughness = 0.7;
-        n.material.needsUpdate = true;
-      }
+  try {
+    // 2. Call API
+    const res = await fetch(SPACE_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ text: input.value })
     });
 
-    wrapper.add(gltf.scene);
-    scene.add(wrapper);
-    grabbableObjects.push(wrapper);
+    if (!res.ok) throw new Error(`API error ${res.status}`);
 
-    assetCounter = (assetCounter + 1) % assetsSequence.length;
-  });
+    const json = await res.json();
+    const base64 = json?.result?.object_base64;
+    if (!base64) throw new Error("No object_base64");
 
-  input.value = '';
+    // 3. Decode base64 → blob
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    const blob = new Blob([bytes], { type: "model/gltf-binary" });
+    const url = URL.createObjectURL(blob);
+
+    // 4. Load generated model
+    loader.load(url, gltf => {
+      gltf.scene.traverse(n => {
+        if (n.isMesh && n.material) {
+          n.material.side = THREE.DoubleSide;
+          if ("metalness" in n.material) n.material.metalness = 0.3;
+          if ("roughness" in n.material) n.material.roughness = 0.7;
+          n.material.needsUpdate = true;
+        }
+      });
+
+      replaceWrapperContent(wrapper, gltf.scene);
+      URL.revokeObjectURL(url);
+    });
+
+  } catch (err) {
+    console.error("Generation failed:", err);
+
+    // 5. Replace with failure model
+    loader.load("/assets/failed.glb", gltf => {
+      replaceWrapperContent(wrapper, gltf.scene);
+    });
+  }
+
+  input.value = "";
 }
+
+
 
 /* ---------------- RAYS ---------------- */
 function addControllerRay(ctrl){
