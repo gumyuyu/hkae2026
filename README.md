@@ -28,3 +28,8 @@ openssl req -nodes -new -x509 -keyout key.pem -out cert.pem -days 365
 # starting frontend server
 node server.js
 ```
+Must also change 
+```bash
+const API_TOKEN = "super_secret_api_token_123";
+```
+to an actual api token that matches MY_API_KEY on the hosted backend
