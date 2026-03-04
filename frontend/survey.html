@@ -358,7 +358,7 @@
 
 <header>
   <h1 id="header-title">🏠 室內設計需求問卷</h1>
-  <!-- <p id="header-sub">Interior Design Preference Survey</p> -->
+  <p id="header-sub">Interior Design Preference Survey</p>
   <div class="lang-toggle-wrap">
     <span class="lang-label" id="lang-zh">中</span>
     <button class="toggle-switch" id="lang-toggle" aria-label="Toggle language"></button>
@@ -772,6 +772,7 @@ function buildQuestion(q) {
   return `
     <div class="q-number">${currentLang === 'zh' ? `問題 ${current + 1} / ${getText('questions').length}` : `Question ${current + 1} / ${getText('questions').length}`}</div>
     <div class="q-title">${q.title}</div>
+    <div class="q-sub">${q.sub}</div>
     ${body}
     <div class="nav">
       <button class="btn btn-prev" id="btn-prev" ${isFirst ? 'disabled' : ''}>${t.prevBtn}</button>
