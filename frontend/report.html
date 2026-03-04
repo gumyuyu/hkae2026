@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>您的室內設計報告</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --primary: #6c63ff;
+      --primary-light: #a29bfe;
+      --primary-dark: #4834d4;
+      --accent: #fd79a8;
+      --success: #00b894;
+      --warning: #fdcb6e;
+      --info: #74b9ff;
+      --bg: #f8f7ff;
+      --card: #ffffff;
+      --text: #2d3436;
+      --text-muted: #636e72;
+      --border: #dfe6e9;
+      --shadow: 0 8px 32px rgba(108,99,255,.10);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI','PingFang TC','Microsoft JhengHei',sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, var(--primary-dark), var(--primary), var(--primary-light));
+      padding: 40px 24px 32px; text-align: center; color: #fff;
+      position: relative; overflow: hidden;
+    }
+    header::before {
+      content:''; position:absolute; top:-80px; right:-80px;
+      width:260px; height:260px; border-radius:50%;
+      background:rgba(255,255,255,.07);
+    }
+    header h1 { font-size: 2rem; font-weight: 700; }
+    header p  { margin-top: 8px; opacity: .85; font-size: 1rem; }
+
+    /* ── Container ── */
+    .container { max-width: 900px; margin: 0 auto; padding: 32px 20px 60px; }
+
+    /* ── Section title ── */
+    .section-title {
+      font-size: 1.15rem; font-weight: 700;
+      color: var(--primary); margin: 36px 0 16px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .section-title::after {
+      content:''; flex:1; height:2px;
+      background: linear-gradient(90deg, var(--primary-light), transparent);
+      border-radius:99px;
+    }
+
+    /* ── Cards grid ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; }
+    @media(max-width:640px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 28px 24px;
+    }
+    .card h3 { font-size: .95rem; color: var(--text-muted); margin-bottom: 16px; }
+
+    /* ── KPI cards ── */
+    .kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
+    @media(max-width:640px) { .kpi-grid { grid-template-columns: repeat(2,1fr); } }
+    .kpi {
+      background: var(--card); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 22px 18px; text-align: center;
+    }
+    .kpi .icon { font-size: 2rem; margin-bottom: 8px; }
+    .kpi .val  { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
+    .kpi .lbl  { font-size: .78rem; color: var(--text-muted); margin-top: 4px; }
+
+    /* ── Style tags ── */
+    .tags { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+    .tag {
+      padding: 7px 16px; border-radius: 99px;
+      font-size: .85rem; font-weight: 600; color: #fff;
+    }
+
+    /* ── Activity bars ── */
+    .bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .bar-label { font-size: .85rem; width: 140px; flex-shrink: 0; }
+    .bar-bg { flex: 1; height: 10px; background: var(--border); border-radius: 99px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--primary), var(--primary-light)); }
+
+    /* ── Text answer ── */
+    .text-answer {
+      background: var(--bg); border-radius: 12px;
+      padding: 16px 20px; font-size: .95rem; line-height: 1.7;
+      color: var(--text); border-left: 4px solid var(--primary);
+      margin-top: 8px;
+    }
+
+    /* ── Radar legend ── */
+    .radar-wrap { position: relative; max-width: 360px; margin: 0 auto; }
+
+    /* ── Gauge ── */
+    .gauge-wrap { display: flex; flex-direction: column; align-items: center; }
+    .gauge-label { font-size: .85rem; color: var(--text-muted); margin-top: 8px; }
+
+    /* ── Personality badge ── */
+    .personality {
+      background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+      color: #fff; border-radius: var(--radius); padding: 28px 32px;
+      text-align: center; margin-bottom: 8px;
+    }
+    .personality .badge { font-size: 3rem; margin-bottom: 10px; }
+    .personality h2 { font-size: 1.4rem; font-weight: 700; }
+    .personality p  { opacity: .85; margin-top: 8px; font-size: .95rem; line-height: 1.6; }
+
+    /* ── Print / share ── */
+    .action-bar {
+      display: flex; gap: 14px; justify-content: center; margin-top: 40px; flex-wrap: wrap;
+    }
+    .btn {
+      padding: 13px 30px; border-radius: 99px; border: none;
+      font-size: .95rem; font-weight: 600; cursor: pointer; transition: all .2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff; box-shadow: 0 4px 16px rgba(108,99,255,.35);
+    }
+    .btn-primary:hover { transform: translateY(-2px); }
+    .btn-outline {
+      background: #fff; color: var(--primary);
+      border: 2px solid var(--primary);
+    }
+    .btn-outline:hover { background: var(--bg); }
+
+    @media print {
+      .action-bar { display: none; }
+      header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+
+    /* ── No data ── */
+    .no-data {
+      text-align: center; padding: 60px 20px; color: var(--text-muted);
+    }
+    .no-data a { color: var(--primary); text-decoration: none; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🏠 您的室內設計需求報告</h1>
+  <p>Interior Design Preference Report</p>
+</header>
+
+<div class="container" id="report-root">
+  <!-- Rendered by JS -->
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  Load answers
+// ─────────────────────────────────────────────
+const raw = localStorage.getItem('interiorAnswers');
+const root = document.getElementById('report-root');
+
+if (!raw) {
+  root.innerHTML = `
+    <div class="no-data">
+      <div style="font-size:4rem;margin-bottom:16px;">📋</div>
+      <h2 style="margin-bottom:12px;">尚未填寫問卷</h2>
+      <p>請先完成問卷，再查看您的設計報告。</p>
+      <br><a href="survey.html">← 前往填寫問卷</a>
+    </div>`;
+} else {
+  const A = JSON.parse(raw);
+  // Defer to ensure DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => buildReport(A));
+  } else {
+    buildReport(A);
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────
+function chips(key, A) {
+  const v = A[key];
+  if (!v) return [];
+  return Array.isArray(v) ? v : (v.chips || []);
+}
+function textVal(key, A) {
+  const v = A[key];
+  if (!v) return '';
+  if (typeof v === 'string') return v;
+  return v.text || '';
+}
+function sliderVal(key, A, def) {
+  return A[key] !== undefined ? +A[key] : def;
+}
+
+// ─────────────────────────────────────────────
+//  Personality engine
+// ─────────────────────────────────────────────
+function getPersonality(A) {
+  const mini = sliderVal('minimalist_vs_deco', A, 5);
+  const stor = sliderVal('storage', A, 5);
+  const smart = sliderVal('smart_home', A, 3);
+  const styles = chips('style', A);
+
+  if (mini <= 3 && stor <= 3) return {
+    badge: '🧘', name: '極簡主義者',
+    desc: '您追求乾淨俐落的空間感，每件物品都有其意義。隱藏式收納與留白設計將是您的最佳夥伴。'
+  };
+  if (mini >= 7) return {
+    badge: '🎨', name: '藝術裝飾愛好者',
+    desc: '您熱愛豐富的視覺層次，喜歡用裝飾品和色彩表達個性。空間對您而言是一塊畫布。'
+  };
+  if (smart >= 4) return {
+    badge: '🤖', name: '科技智慧居家派',
+    desc: '您重視科技帶來的便利，智慧照明、自動化設備讓生活更有效率。現代感與功能性並重。'
+  };
+  if (styles.includes('北歐簡約') || styles.includes('日式侘寂')) return {
+    badge: '🌿', name: '自然禪意生活家',
+    desc: '您嚮往自然、寧靜的居家氛圍，原木、植物與柔和色調讓您感到放鬆與自在。'
+  };
+  return {
+    badge: '⚖️', name: '均衡實用主義者',
+    desc: '您在美感與實用之間取得完美平衡，重視生活品質的同時也不忘空間的功能性。'
+  };
+}
+
+// ─────────────────────────────────────────────
+//  Main builder
+// ─────────────────────────────────────────────
+function buildReport(A) {
+  const budget = sliderVal('budget', A, 50);
+  const mini   = sliderVal('minimalist_vs_deco', A, 5);
+  const stor   = sliderVal('storage', A, 5);
+  const smart  = sliderVal('smart_home', A, 3);
+  const light  = sliderVal('lighting', A, 3);
+
+  const household  = chips('household', A);
+  const styleChips = chips('style', A);
+  const activities = chips('activities', A);
+  const firstThing = chips('first_thing', A);
+  const mostArea   = chips('most_used_area', A);
+  const specNeeds  = chips('special_needs', A);
+  const specText   = textVal('special_needs', A);
+  const mustHave   = textVal('must_have', A);
+
+  const person = getPersonality(A);
+
+  // Style tag colors
+  const styleColors = {
+    '北歐簡約':'#636e72','現代都市':'#2d3436','日式侘寂':'#b8860b',
+    '工業風':'#74b9ff','鄉村田園':'#55a868','地中海':'#0984e3',
+    '奢華古典':'#c9a84c','波西米亞':'#e17055','清新粉嫩':'#fd79a8','自然原木':'#a0522d'
+  };
+
+  // KPI data
+  const hasPets     = household.some(h => h.includes('寵物'));
+  const hasKids     = household.some(h => h.includes('兒') || h.includes('嬰'));
+  const peopleChip  = household.find(h => ['1人','2人','3人','4人','5人'].some(p => h.startsWith(p)));
+  const peopleCount = peopleChip ? peopleChip.replace(/（.*）/,'') : '未填寫';
+
+  // Radar data: 5 dimensions
+  const radarData = {
+    labels: ['智慧科技','自然採光','收納機能','裝飾豐富度','預算彈性'],
+    values: [
+      Math.round(smart * 20),
+      Math.round(light * 20),
+      Math.round((11 - stor) * 10),   // inverted: hidden=high storage score
+      Math.round(mini * 10),
+      Math.round((budget / 200) * 100)
+    ]
+  };
+
+  root.innerHTML = `
+    <!-- Personality -->
+    <div class="section-title">✨ 您的設計人格</div>
+    <div class="personality">
+      <div class="badge">${person.badge}</div>
+      <h2>${person.name}</h2>
+      <p>${person.desc}</p>
+    </div>
+
+    <!-- KPI -->
+    <div class="section-title">📊 基本概覽</div>
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="icon">💰</div>
+        <div class="val">${budget} 萬</div>
+        <div class="lbl">設計預算</div>
+      </div>
+      <div class="kpi">
+        <div class="icon">👥</div>
+        <div class="val">${peopleCount}</div>
+        <div class="lbl">常住人口</div>
+      </div>
+      <div class="kpi">
+        <div class="icon">${hasPets ? '🐾' : '🏠'}</div>
+        <div class="val">${hasPets ? '有寵物' : '無寵物'}</div>
+        <div class="lbl">寵物狀況</div>
+      </div>
+      <div class="kpi">
+        <div class="icon">${hasKids ? '👶' : '🧑'}</div>
+        <div class="val">${hasKids ? '有小孩' : '無小孩'}</div>
+        <div class="lbl">兒童狀況</div>
+      </div>
+    </div>
+
+    <!-- Style + Radar -->
+    <div class="section-title">🎨 風格偏好分析</div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>偏好風格</h3>
+        ${styleChips.length
+          ? `<div class="tags">${styleChips.map(s => `<span class="tag" style="background:${styleColors[s]||'#6c63ff'}">${s}</span>`).join('')}</div>`
+          : '<p style="color:var(--text-muted)">未選擇</p>'
+        }
+        <div style="margin-top:24px;">
+          <h3>簡約 ↔ 裝飾偏好</h3>
+          <canvas id="chart-mini" height="60"></canvas>
+        </div>
+        <div style="margin-top:20px;">
+          <h3>收納偏好</h3>
+          <canvas id="chart-stor" height="60"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <h3>五維設計需求雷達</h3>
+        <div class="radar-wrap">
+          <canvas id="chart-radar"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activities + Areas -->
+    <div class="section-title">🏃 生活習慣分析</div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>常做活動</h3>
+        <canvas id="chart-activities" height="200"></canvas>
+      </div>
+      <div class="card">
+        <h3>最常使用區域</h3>
+        <canvas id="chart-areas" height="200"></canvas>
+      </div>
+    </div>
+
+    <!-- First thing + Smart/Light gauges -->
+    <div class="section-title">⚡ 回家習慣 & 科技需求</div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>回家第一件事</h3>
+        ${firstThing.length
+          ? firstThing.map(f => `<div class="bar-row"><span class="bar-label">${f}</span><div class="bar-bg"><div class="bar-fill" style="width:100%"></div></div></div>`).join('')
+          : '<p style="color:var(--text-muted)">未填寫</p>'
+        }
+      </div>
+      <div class="card">
+        <h3>智慧家居 & 照明需求</h3>
+        <canvas id="chart-gauges" height="180"></canvas>
+      </div>
+    </div>
+
+    <!-- Special needs + Must-have -->
+    <div class="section-title">📝 特殊需求 & 必要功能</div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>特殊需求</h3>
+        ${specNeeds.length
+          ? `<div class="tags" style="margin-bottom:12px;">${specNeeds.map(s=>`<span class="tag" style="background:var(--info);color:#fff">${s}</span>`).join('')}</div>`
+          : ''
+        }
+        ${specText ? `<div class="text-answer">${specText}</div>` : (!specNeeds.length ? '<p style="color:var(--text-muted)">無特殊需求</p>' : '')}
+      </div>
+      <div class="card">
+        <h3>必要設計 / 功能</h3>
+        ${mustHave ? `<div class="text-answer">${mustHave}</div>` : '<p style="color:var(--text-muted)">未填寫</p>'}
+      </div>
+    </div>
+
+    <!-- Household breakdown -->
+    <div class="section-title">👨‍👩‍👧 家庭成員組成</div>
+    <div class="card">
+      <canvas id="chart-household" height="80"></canvas>
+    </div>
+
+    <!-- Actions -->
+    <div class="action-bar">
+      <button class="btn btn-primary" onclick="window.print()">🖨️ 列印 / 儲存 PDF</button>
+      <button class="btn btn-outline" onclick="copyLink()">🔗 複製分享連結</button>
+      <a class="btn btn-outline" href="index.html" style="text-decoration:none">← 重新填寫</a>
+    </div>
+  `;
+
+  // ── Charts (use requestAnimationFrame to ensure canvas is in DOM) ──
+  requestAnimationFrame(() => {
+    drawHBar('chart-mini', ['極簡', '均衡', '裝飾'], getTriVal(mini, 1, 10), ['#a29bfe','#6c63ff','#fd79a8']);
+    drawHBar('chart-stor', ['隱藏式', '混合', '開放式'], getTriVal(stor, 1, 10), ['#74b9ff','#6c63ff','#00b894']);
+    drawRadar('chart-radar', radarData);
+    drawDoughnut('chart-activities', activities.length ? activities : ['（未選擇）'], activities.length ? activities.map((_,i)=>i+1) : [1]);
+    drawDoughnut('chart-areas', mostArea.length ? mostArea : ['（未選擇）'], mostArea.length ? mostArea.map((_,i)=>i+1) : [1]);
+    drawGauges('chart-gauges', smart, light);
+    drawHousehold('chart-household', household);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  Chart helpers
+// ─────────────────────────────────────────────
+const PALETTE = ['#6c63ff','#fd79a8','#00b894','#fdcb6e','#74b9ff','#e17055','#a29bfe','#55efc4','#ffeaa7','#dfe6e9','#b2bec3'];
+
+function getTriVal(v, min, max) {
+  const pct = (v - min) / (max - min);
+  if (pct < 0.35) return [100, 0, 0];
+  if (pct < 0.65) return [0, 100, 0];
+  return [0, 0, 100];
+}
+
+function drawHBar(id, labels, data, colors) {
+  new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: colors, borderRadius: 8, borderSkipped: false }]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { max: 100, grid: { display: false }, ticks: { callback: v => v + '%' } },
+        y: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+function drawRadar(id, { labels, values }) {
+  new Chart(document.getElementById(id), {
+    type: 'radar',
+    data: {
+      labels,
+      datasets: [{
+        label: '您的需求',
+        data: values,
+        backgroundColor: 'rgba(108,99,255,.2)',
+        borderColor: '#6c63ff',
+        pointBackgroundColor: '#6c63ff',
+        pointRadius: 5,
+        borderWidth: 2
+      }]
+    },
+    options: {
+      scales: {
+        r: {
+          min: 0, max: 100,
+          ticks: { stepSize: 25, display: false },
+          grid: { color: 'rgba(0,0,0,.08)' },
+          pointLabels: { font: { size: 11 } }
+        }
+      },
+      plugins: { legend: { display: false } }
+    }
+  });
+}
+
+function drawDoughnut(id, labels, data) {
+  new Chart(document.getElementById(id), {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: data.map(() => 1),
+        backgroundColor: PALETTE.slice(0, labels.length),
+        borderWidth: 2, borderColor: '#fff'
+      }]
+    },
+    options: {
+      plugins: {
+        legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 14, padding: 10 } }
+      },
+      cutout: '55%'
+    }
+  });
+}
+
+function drawGauges(id, smart, light) {
+  new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: {
+      labels: ['智慧家居需求', '照明/自然光重要性'],
+      datasets: [{
+        label: '您的評分',
+        data: [smart * 20, light * 20],
+        backgroundColor: ['#6c63ff', '#fdcb6e'],
+        borderRadius: 10, borderSkipped: false
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { max: 100, ticks: { callback: v => v + '%' }, grid: { color: 'rgba(0,0,0,.05)' } }
+      }
+    }
+  });
+}
+
+function drawHousehold(id, household) {
+  const labels = household.length ? household : ['（未填寫）'];
+  new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: labels.map(() => 1),
+        backgroundColor: PALETTE.slice(0, labels.length),
+        borderRadius: 10, borderSkipped: false
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { display: false }
+      }
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+//  Share
+// ─────────────────────────────────────────────
+function copyLink() {
+  const data = localStorage.getItem('interiorAnswers') || '';
+  const encoded = encodeURIComponent(data);
+  const url = location.href.split('?')[0] + '?data=' + encoded;
+  navigator.clipboard.writeText(url).then(() => {
+    alert('連結已複製！可貼上分享給設計師或朋友。');
+  }).catch(() => {
+    prompt('請複製以下連結：', url);
+  });
+}
+
+// Support loading from URL param
+(function() {
+  const params = new URLSearchParams(location.search);
+  const d = params.get('data');
+  if (d) {
+    try {
+      localStorage.setItem('interiorAnswers', decodeURIComponent(d));
+    } catch(e) {}
+  }
+})();
+</script>
+</body>
+</html>

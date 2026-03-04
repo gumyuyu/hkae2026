@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>室內設計需求問卷 | Interior Design Preference Survey</title>
+  <style>
+    :root {
+      --primary: #6c63ff;
+      --primary-light: #a29bfe;
+      --primary-dark: #4834d4;
+      --accent: #fd79a8;
+      --bg: #f8f7ff;
+      --card: #ffffff;
+      --text: #2d3436;
+      --text-muted: #636e72;
+      --border: #dfe6e9;
+      --success: #00b894;
+      --shadow: 0 8px 32px rgba(108,99,255,0.10);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Header with Language Toggle ── */
+    header {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 60%, var(--primary-light) 100%);
+      padding: 36px 24px 28px;
+      text-align: center;
+      color: #fff;
+      position: relative;
+      overflow: hidden;
+    }
+    header::before {
+      content: '';
+      position: absolute; top: -60px; right: -60px;
+      width: 220px; height: 220px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+    }
+    header h1 { font-size: 2rem; font-weight: 700; letter-spacing: 1px; position: relative; z-index: 1; }
+    header p  { margin-top: 8px; font-size: 1rem; opacity: .85; position: relative; z-index: 1; }
+
+    /* ── Language Toggle ── */
+    .lang-toggle-wrap {
+      position: absolute; top: 24px; right: 24px;
+      display: flex; align-items: center; gap: 12px;
+      background: rgba(255,255,255,.15); padding: 10px 16px;
+      border-radius: 99px; backdrop-filter: blur(10px);
+      z-index: 10;
+    }
+    .lang-label { font-size: .85rem; color: #fff; font-weight: 600; }
+    .toggle-switch {
+      position: relative; width: 56px; height: 28px;
+      background: rgba(255,255,255,.3); border-radius: 99px;
+      cursor: pointer; transition: background .3s;
+      border: none; padding: 0;
+    }
+    .toggle-switch.en { background: rgba(255,255,255,.5); }
+    .toggle-switch::after {
+      content: '';
+      position: absolute; top: 2px; left: 2px;
+      width: 24px; height: 24px;
+      background: #fff; border-radius: 50%;
+      transition: left .3s;
+    }
+    .toggle-switch.en::after { left: 30px; }
+
+    /* ── Progress ── */
+    .progress-wrap {
+      width: 100%; max-width: 720px;
+      padding: 24px 24px 0;
+    }
+    .progress-meta {
+      display: flex; justify-content: space-between;
+      font-size: .85rem; color: var(--text-muted); margin-bottom: 8px;
+    }
+    .progress-bar-bg {
+      width: 100%; height: 8px;
+      background: var(--border); border-radius: 99px; overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      border-radius: 99px;
+      transition: width .5s cubic-bezier(.4,0,.2,1);
+    }
+
+    /* ── Card ── */
+    .card-wrap {
+      width: 100%; max-width: 720px;
+      padding: 24px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 40px 44px;
+      animation: fadeSlide .4s ease;
+    }
+    @keyframes fadeSlide {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Upload Section ── */
+    .upload-section {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 40px 44px;
+      margin-bottom: 24px;
+      animation: fadeSlide .4s ease;
+    }
+    .upload-title {
+      font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;
+    }
+    .upload-subtitle {
+      font-size: .9rem; color: var(--text-muted); margin-bottom: 24px;
+    }
+    .file-input-wrap {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+    }
+    .file-input-label {
+      display: flex; align-items: center; justify-content: center;
+      gap: 12px;
+      padding: 32px 24px;
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      background: var(--bg);
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .file-input-label:hover {
+      border-color: var(--primary);
+      background: rgba(108,99,255,.05);
+    }
+    .file-input-label.active {
+      border-color: var(--success);
+      background: rgba(0,184,148,.05);
+    }
+    .file-input-label.active::before {
+      content: '✓';
+      position: absolute; left: 16px;
+      font-size: 1.5rem; color: var(--success);
+      font-weight: 700;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .file-icon { font-size: 1.8rem; }
+    .file-text { text-align: left; }
+    .file-text-main { font-weight: 600; font-size: .95rem; }
+    .file-text-sub { font-size: .8rem; color: var(--text-muted); margin-top: 4px; }
+    .file-name {
+      margin-top: 12px;
+      padding: 12px 16px;
+      background: var(--bg);
+      border-radius: 8px;
+      font-size: .85rem;
+      color: var(--success);
+      display: none;
+    }
+    .file-name.show { display: block; }
+    .preview-wrap {
+      margin-top: 24px;
+      display: none;
+    }
+    .preview-wrap.show { display: block; }
+    .preview-label {
+      font-size: .9rem; color: var(--text-muted);
+      margin-bottom: 12px; font-weight: 600;
+    }
+    .preview-image {
+      max-width: 100%;
+      max-height: 400px;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      object-fit: contain;
+    }
+    .upload-actions {
+      display: flex; gap: 12px; margin-top: 20px;
+    }
+    .btn-upload-next {
+      flex: 1;
+      padding: 13px 24px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff;
+      border: none;
+      border-radius: 99px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(108,99,255,.35);
+      transition: all .2s;
+    }
+    .btn-upload-next:hover { transform: translateY(-2px); }
+    .btn-upload-next:disabled { opacity: .4; cursor: not-allowed; }
+
+    .q-number {
+      font-size: .78rem; font-weight: 700; letter-spacing: 2px;
+      color: var(--primary); text-transform: uppercase; margin-bottom: 10px;
+    }
+    .q-title {
+      font-size: 1.35rem; font-weight: 700; line-height: 1.5;
+      margin-bottom: 6px;
+    }
+    .q-sub {
+      font-size: .9rem; color: var(--text-muted); margin-bottom: 28px;
+    }
+
+    /* ── Slider ── */
+    .slider-wrap { margin-top: 8px; }
+    .slider-labels {
+      display: flex; justify-content: space-between;
+      font-size: .82rem; color: var(--text-muted); margin-bottom: 10px;
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      width: 100%; height: 6px;
+      border-radius: 99px;
+      background: var(--border);
+      outline: none; cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 2px 8px rgba(108,99,255,.4);
+      cursor: pointer;
+      transition: transform .15s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+    .slider-value {
+      text-align: center; margin-top: 14px;
+      font-size: 1.4rem; font-weight: 700; color: var(--primary);
+    }
+
+    /* ── Chips (multi-select) ── */
+    .chips { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+    .chip {
+      padding: 10px 20px;
+      border: 2px solid var(--border);
+      border-radius: 99px;
+      font-size: .9rem; cursor: pointer;
+      transition: all .2s;
+      user-select: none;
+      background: #fff;
+    }
+    .chip:hover { border-color: var(--primary-light); color: var(--primary); }
+    .chip.selected {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(108,99,255,.3);
+    }
+
+    /* ── Color chips ── */
+    .color-chips { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 4px; }
+    .color-chip {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      cursor: pointer; transition: transform .2s;
+    }
+    .color-chip:hover { transform: translateY(-3px); }
+    .color-swatch {
+      width: 52px; height: 52px; border-radius: 12px;
+      border: 3px solid transparent;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .color-chip.selected .color-swatch {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(108,99,255,.25);
+    }
+    .color-chip span { font-size: .75rem; color: var(--text-muted); }
+
+    /* ── Text area ── */
+    textarea {
+      width: 100%; min-height: 110px;
+      border: 2px solid var(--border);
+      border-radius: 12px; padding: 14px 16px;
+      font-size: .95rem; font-family: inherit;
+      resize: vertical; outline: none;
+      transition: border-color .2s;
+    }
+    textarea:focus { border-color: var(--primary); }
+
+    /* ── Navigation ── */
+    .nav {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 36px;
+    }
+    .btn {
+      padding: 13px 32px;
+      border: none; border-radius: 99px;
+      font-size: 1rem; font-weight: 600; cursor: pointer;
+      transition: all .2s;
+    }
+    .btn-prev {
+      background: #fff; color: var(--primary);
+      border: 2px solid var(--primary);
+    }
+    .btn-prev:hover { background: var(--bg); }
+    .btn-next {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(108,99,255,.35);
+    }
+    .btn-next:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(108,99,255,.45); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+
+    /* ── Hint ── */
+    .hint { font-size: .8rem; color: var(--text-muted); margin-top: 10px; }
+
+    /* ── Finish screen ── */
+    #finish-screen {
+      display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 60px 40px;
+    }
+    .finish-icon { font-size: 5rem; margin-bottom: 20px; }
+    #finish-screen h2 { font-size: 1.8rem; font-weight: 700; margin-bottom: 12px; }
+    #finish-screen p  { color: var(--text-muted); font-size: 1rem; margin-bottom: 32px; }
+    .btn-result {
+      background: linear-gradient(135deg, var(--success), #00cec9);
+      color: #fff; padding: 15px 40px;
+      border-radius: 99px; font-size: 1.05rem; font-weight: 700;
+      text-decoration: none; display: inline-block;
+      box-shadow: 0 4px 16px rgba(0,184,148,.35);
+      transition: all .2s;
+    }
+    .btn-result:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,184,148,.45); }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .card { padding: 28px 20px; }
+      .upload-section { padding: 28px 20px; }
+      header h1 { font-size: 1.5rem; }
+      .lang-toggle-wrap { top: 16px; right: 16px; padding: 8px 12px; }
+      .lang-label { font-size: .75rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1 id="header-title">🏠 室內設計需求問卷</h1>
+  <!-- <p id="header-sub">Interior Design Preference Survey</p> -->
+  <div class="lang-toggle-wrap">
+    <span class="lang-label" id="lang-zh">中</span>
+    <button class="toggle-switch" id="lang-toggle" aria-label="Toggle language"></button>
+    <span class="lang-label" id="lang-en">EN</span>
+  </div>
+</header>
+
+<div class="progress-wrap">
+  <div class="progress-meta">
+    <span id="prog-label">問題 1 / 13</span>
+    <span id="prog-pct">0%</span>
+  </div>
+  <div class="progress-bar-bg">
+    <div class="progress-bar-fill" id="prog-fill" style="width:0%"></div>
+  </div>
+</div>
+
+<div class="card-wrap">
+  <div class="card" id="quiz-card">
+    <!-- Rendered by JS -->
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  Translations
+// ─────────────────────────────────────────────
+const i18n = {
+  zh: {
+    headerTitle: '🏠 室內設計需求問卷',
+    headerSub: 'Interior Design Preference Survey',
+    prevBtn: '← 上一題',
+    nextBtn: '下一題 →',
+    finishBtn: '完成問卷 ✓',
+    uploadTitle: '📁 上傳您的平面圖',
+    uploadSubtitle: '上傳您家中的平面圖，幫助設計師更好地理解您的空間。',
+    uploadLabel: '點擊或拖拽上傳平面圖（JPG、PNG、PDF）',
+    uploadHint: '支持 JPG、PNG、PDF 格式，最大 10MB',
+    previewLabel: '平面圖預覽：',
+    uploadNextBtn: '確認並繼續 →',
+    finishTitle: '問卷完成！',
+    finishMsg: '感謝您完成室內設計需求問卷。\n您的答案已儲存，點擊下方按鈕查看個人化結果報告。',
+    viewReport: '查看我的設計報告 →',
+    multiSelectHint: '可複選',
+    questions: [
+      {
+        title: '請問您的預算範圍？',
+        sub: 'What is your budget for interior design?',
+        min: 10, max: 200, step: 5, unit: '萬元',
+        defaultVal: 50,
+        labels: ['10萬', '50萬', '100萬', '150萬', '200萬+'],
+        labelPositions: [0, 25, 50, 75, 100],
+        displayMap: v => v + ' 萬元'
+      },
+      {
+        title: '家中常住人口及有無小孩 / 寵物？',
+        sub: 'How many people live here? Any children or pets?',
+        options: ['1人（單身）','2人（夫妻/室友）','3人（小家庭）','4人','5人以上','有嬰幼兒','有學齡兒童','有青少年','有寵物（貓）','有寵物（狗）','有其他寵物']
+      },
+      {
+        title: '您喜歡什麼色調 / 風格？',
+        sub: 'What color tones and design styles do you prefer?',
+        styles: [
+          { label: '北歐簡約', color: '#e8e0d5', text: '#5a5a5a' },
+          { label: '現代都市', color: '#2d3436', text: '#fff' },
+          { label: '日式侘寂', color: '#c8b9a2', text: '#4a3f35' },
+          { label: '工業風', color: '#636e72', text: '#fff' },
+          { label: '鄉村田園', color: '#a8c5a0', text: '#3a5a40' },
+          { label: '地中海', color: '#74b9ff', text: '#fff' },
+          { label: '奢華古典', color: '#c9a84c', text: '#fff' },
+          { label: '波西米亞', color: '#e17055', text: '#fff' },
+          { label: '清新粉嫩', color: '#fab1c0', text: '#5a2d3a' },
+          { label: '自然原木', color: '#b8860b', text: '#fff' },
+        ]
+      },
+      {
+        title: '您平時在家最常做的活動是哪些？',
+        sub: 'What activities do you usually do at home?',
+        options: ['看電視/影音娛樂','閱讀','遠端工作/辦公','烹飪','健身/瑜珈','招待朋友','玩遊戲','手作/藝術創作','冥想/放鬆','照顧小孩','照顧寵物']
+      },
+      {
+        title: '您回家第一件事通常是什麼？',
+        sub: 'What is the first thing you usually do when you get home?',
+        options: ['換衣服/換拖鞋','洗手/洗澡','放下包包整理隨身物品','開電視/音樂','準備餐點','陪伴家人/寵物','坐下來休息','查看手機/電腦']
+      },
+      {
+        title: '您最常使用家中的哪個區域？',
+        sub: 'Which area of your home do you use most?',
+        options: ['客廳','餐廳','廚房','主臥室','書房/工作室','浴室/衛浴','陽台/戶外','玄關']
+      },
+      {
+        title: '您偏好簡約風格還是較有裝飾性的風格？',
+        sub: 'Do you prefer a minimalist or more decorative style?',
+        min: 1, max: 10, step: 1, unit: '',
+        defaultVal: 5,
+        labels: ['極簡主義', '均衡', '裝飾豐富'],
+        labelPositions: [0, 50, 100],
+        displayMap: v => v <= 3 ? '偏向極簡' : v <= 7 ? '均衡折衷' : '偏向裝飾'
+      },
+      {
+        title: '您偏好隱藏式收納還是開放式層架？',
+        sub: 'Do you prefer hidden storage or open shelving?',
+        min: 1, max: 10, step: 1, unit: '',
+        defaultVal: 5,
+        labels: ['全隱藏式', '均衡', '全開放式'],
+        labelPositions: [0, 50, 100],
+        displayMap: v => v <= 3 ? '偏向隱藏式' : v <= 7 ? '混合搭配' : '偏向開放式'
+      },
+      {
+        title: '對於智慧家居整合的需求？',
+        sub: 'How important is smart home integration to you?',
+        min: 1, max: 5, step: 1, unit: '分',
+        defaultVal: 3,
+        labels: ['完全不需要', '普通', '非常重要'],
+        labelPositions: [0, 50, 100],
+        displayMap: v => ['','完全不需要','不太需要','普通','比較重要','非常重要'][v]
+      },
+      {
+        title: '照明 / 自然光對您的重要性？',
+        sub: 'How important is lighting / natural light to you?',
+        min: 1, max: 5, step: 1, unit: '分',
+        defaultVal: 3,
+        labels: ['不太重要', '普通', '極為重要'],
+        labelPositions: [0, 50, 100],
+        displayMap: v => ['','不太重要','略微重要','普通重要','相當重要','極為重要'][v]
+      },
+      {
+        title: '有無特殊需求（如無障礙設計等）？',
+        sub: 'Any special requirements, such as accessibility design?',
+        options: ['無障礙設計（輪椅/行動不便）','老人友善設計','防滑地板','低過敏材質','隔音需求','防水/防潮加強','無特殊需求'],
+        textLabel: '其他特殊需求說明',
+        textPlaceholder: '請描述您的特殊需求…'
+      },
+      {
+        title: '有無必須要的設計 / 功能？',
+        sub: 'Any must-have features or layouts you cannot live without?',
+        placeholder: '例如：大型中島廚房、主臥更衣室、書牆、浴缸、雙人辦公桌…',
+      }
+    ]
+  },
+  en: {
+    headerTitle: '🏠 Interior Design Preference Survey',
+    headerSub: '室內設計需求問卷',
+    prevBtn: '← Previous',
+    nextBtn: 'Next →',
+    finishBtn: 'Complete Survey ✓',
+    uploadTitle: '📁 Upload Your Floor Plan',
+    uploadSubtitle: 'Upload your home floor plan to help designers better understand your space.',
+    uploadLabel: 'Click or drag to upload floor plan (JPG, PNG, PDF)',
+    uploadHint: 'Supports JPG, PNG, PDF formats, max 10MB',
+    previewLabel: 'Floor Plan Preview:',
+    uploadNextBtn: 'Confirm & Continue →',
+    finishTitle: 'Survey Complete!',
+    finishMsg: 'Thank you for completing the interior design preference survey.\nYour answers have been saved. Click the button below to view your personalized design report.',
+    viewReport: 'View My Design Report →',
+    multiSelectHint: 'Multiple selection allowed',
+    questions: [
+      {
+        title: 'What is your budget for interior design?',
+        sub: '請問您的預算範圍？',
+        min: 10, max: 200, step: 5, unit: 'K',
+        defaultVal: 50,
+        labels: ['10K', '50K', '100K', '150K', '200K+'],
+        labelPositions: [0, 25, 50, 75, 100],
+        displayMap: v => v + 'K'
+      },
+      {
+        title: 'How many people live here? Any children or pets?',
+        sub: '家中常住人口及有無小孩 / 寵物？',
+        options: ['1 person (Single)','2 people (Couple/Roommate)','3 people (Small family)','4 people','5+ people','Infant/Toddler','School-age child','Teenager','Pet (Cat)','Pet (Dog)','Other pets']
+      },
+      {
+        title: 'What color tones and design styles do you prefer?',
+        sub: '您喜歡什麼色調 / 風格？',
+        styles: [
+          { label: 'Nordic Minimalist', color: '#e8e0d5', text: '#5a5a5a' },
+          { label: 'Modern Urban', color: '#2d3436', text: '#fff' },
+          { label: 'Japanese Wabi-sabi', color: '#c8b9a2', text: '#4a3f35' },
+          { label: 'Industrial', color: '#636e72', text: '#fff' },
+          { label: 'Rustic Countryside', color: '#a8c5a0', text: '#3a5a40' },
+          { label: 'Mediterranean', color: '#74b9ff', text: '#fff' },
+          { label: 'Luxury Classic', color: '#c9a84c', text: '#fff' },
+          { label: 'Bohemian', color: '#e17055', text: '#fff' },
+          { label: 'Fresh & Pastel', color: '#fab1c0', text: '#5a2d3a' },
+          { label: 'Natural Wood', color: '#b8860b', text: '#fff' },
+        ]
+      },
+      {
+        title: 'What activities do you usually do at home?',
+        sub: '您平時在家最常做的活動是哪些？',
+        options: ['Watch TV/Video','Reading','Remote work/Office','Cooking','Fitness/Yoga','Entertaining guests','Gaming','Crafts/Art','Meditation/Relaxation','Childcare','Pet care']
+      },
+      {
+        title: 'What is the first thing you usually do when you get home?',
+        sub: '您回家第一件事通常是什麼？',
+        options: ['Change clothes/shoes','Wash hands/shower','Put down bag & organize','Turn on TV/Music','Prepare meal','Spend time with family/pets','Sit down & rest','Check phone/computer']
+      },
+      {
+        title: 'Which area of your home do you use most?',
+        sub: '您最常使用家中的哪個區域？',
+        options: ['Living room','Dining area','Kitchen','Master bedroom','Study/Office','Bathroom','Balcony/Outdoor','Entryway']
+      },
+      {
+        title: 'Do you prefer a minimalist or more decorative style?',
+        sub: '您偏好簡約風格還是較有裝飾性的風格？',
+        min: 1, max: 10, step: 1, unit: '',
+        defaultVal: 5,
+        labels: ['Minimalist', 'Balanced', 'Decorative'],
+        labelPositions: [0, 50, 100],
+        displayMap: v => v <= 3 ? 'Prefer Minimalist' : v <= 7 ? 'Balanced' : 'Prefer Decorative'
+      },
+      {
+        title: 'Do you prefer hidden storage or open shelving?',
+        sub: '您偏好隱藏式收納還是開放式層架？',
+        min: 1, max: 10, step: 1, unit: '',
+        defaultVal: 5,
+        labels: ['Hidden', 'Mixed', 'Open'],
+        labelPositions: [0, 50, 100],
+        displayMap: v => v <= 3 ? 'Prefer Hidden' : v <= 7 ? 'Mixed' : 'Prefer Open'
+      },
+      {
+        title: 'How important is smart home integration to you?',
+        sub: '對於智慧家居整合的需求？',
+        min: 1, max: 5, step: 1, unit: 'pts',
+        defaultVal: 3,
+        labels: ['Not needed', 'Normal', 'Very important'],
+        labelPositions: [0, 50, 100],
+        displayMap: v => ['','Not needed','Slightly needed','Normal','Important','Very important'][v]
+      },
+      {
+        title: 'How important is lighting / natural light to you?',
+        sub: '照明 / 自然光對您的重要性？',
+        min: 1, max: 5, step: 1, unit: 'pts',
+        defaultVal: 3,
+        labels: ['Not important', 'Normal', 'Very important'],
+        labelPositions: [0, 50, 100],
+        displayMap: v => ['','Not important','Slightly important','Normal','Quite important','Very important'][v]
+      },
+      {
+        title: 'Any special requirements, such as accessibility design?',
+        sub: '有無特殊需求（如無障礙設計等）？',
+        options: ['Wheelchair accessible','Senior-friendly design','Non-slip flooring','Hypoallergenic materials','Soundproofing','Enhanced waterproofing','No special requirements'],
+        textLabel: 'Other special requirements',
+        textPlaceholder: 'Please describe your special needs…'
+      },
+      {
+        title: 'Any must-have features or layouts you cannot live without?',
+        sub: '有無必須要的設計 / 功能？',
+        placeholder: 'E.g. large kitchen island, master walk-in closet, bookwall, bathtub, dual office desk…',
+      }
+    ]
+  }
+};
+
+// ─────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────
+let current = 0;
+let isUploadStage = true;
+let currentLang = 'zh';
+const answers = {};
+let floorPlanFile = null;
+
+// ─────────────────────────────────────────────
+//  Language Toggle
+// ─────────────────────────────────────────────
+function switchLanguage() {
+  currentLang = currentLang === 'zh' ? 'en' : 'zh';
+  document.getElementById('lang-toggle').classList.toggle('en');
+  updateAllText();
+  if (!isUploadStage) render();
+}
+
+function getText(key) {
+  return i18n[currentLang][key] || key;
+}
+
+function updateAllText() {
+  document.getElementById('header-title').textContent = getText('headerTitle');
+  document.getElementById('header-sub').textContent = getText('headerSub');
+}
+
+document.getElementById('lang-toggle').addEventListener('click', switchLanguage);
+
+// ─────────────────────────────────────────────
+//  Upload Stage
+// ─────────────────────────────────────────────
+function renderUploadStage() {
+  const t = i18n[currentLang];
+  const card = document.getElementById('quiz-card');
+  card.innerHTML = `
+    <div class="upload-section">
+      <div class="upload-title" id="upload-title">${t.uploadTitle}</div>
+      <div class="upload-subtitle" id="upload-sub">${t.uploadSubtitle}</div>
+      
+      <div class="file-input-wrap">
+        <label class="file-input-label" id="file-label" for="floor-plan-input">
+          <span class="file-icon">📄</span>
+          <div class="file-text">
+            <div class="file-text-main" id="upload-label-text">${t.uploadLabel}</div>
+            <div class="file-text-sub" id="upload-hint-text">${t.uploadHint}</div>
+          </div>
+        </label>
+        <input type="file" id="floor-plan-input" accept=".jpg,.jpeg,.png,.pdf" />
+        <div class="file-name" id="file-name"></div>
+      </div>
+
+      <div class="preview-wrap" id="preview-wrap">
+        <div class="preview-label" id="preview-label">${t.previewLabel}</div>
+        <img class="preview-image" id="preview-image" alt="Floor plan preview" />
+      </div>
+
+      <div class="upload-actions">
+        <button class="btn-upload-next" id="btn-upload-next" disabled>${t.uploadNextBtn}</button>
+      </div>
+    </div>
+  `;
+
+  const fileInput = document.getElementById('floor-plan-input');
+  const fileLabel = document.getElementById('file-label');
+  const fileName = document.getElementById('file-name');
+  const previewWrap = document.getElementById('preview-wrap');
+  const previewImage = document.getElementById('preview-image');
+  const btnNext = document.getElementById('btn-upload-next');
+
+  // File input handler
+  fileInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    floorPlanFile = file;
+    fileName.textContent = `✓ ${file.name}`;
+    fileName.classList.add('show');
+    fileLabel.classList.add('active');
+    btnNext.disabled = false;
+
+    // Preview
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = evt => {
+        previewImage.src = evt.target.result;
+        previewWrap.classList.add('show');
+      };
+      reader.readAsDataURL(file);
+    } else if (file.type === 'application/pdf') {
+      previewImage.src = '📄';
+      previewWrap.classList.add('show');
+    }
+  });
+
+  // Drag & drop
+  fileLabel.addEventListener('dragover', e => {
+    e.preventDefault();
+    fileLabel.style.borderColor = 'var(--primary)';
+  });
+  fileLabel.addEventListener('dragleave', () => {
+    fileLabel.style.borderColor = 'var(--border)';
+  });
+  fileLabel.addEventListener('drop', e => {
+    e.preventDefault();
+    fileLabel.style.borderColor = 'var(--border)';
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      fileInput.files = files;
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+
+  btnNext.addEventListener('click', () => {
+    isUploadStage = false;
+    current = 0;
+    render();
+  });
+
+  document.querySelector('.progress-wrap').style.display = 'none';
+}
+
+// ─────────────────────────────────────────────
+//  Render Quiz
+// ─────────────────────────────────────────────
+function render() {
+  document.querySelector('.progress-wrap').style.display = 'block';
+  
+  const questions = getText('questions');
+  const q = questions[current];
+  const card = document.getElementById('quiz-card');
+  card.innerHTML = buildQuestion(q);
+  restoreAnswer(q);
+  attachEvents(q);
+  updateProgress();
+}
+
+function buildQuestion(q) {
+  let body = '';
+  if (q.min !== undefined) {
+    body = buildSlider(q);
+  } else if (q.styles) {
+    body = buildColorStyle(q);
+  } else if (q.textLabel) {
+    body = buildMultiText(q);
+  } else if (q.options) {
+    body = buildMulti(q);
+  } else {
+    body = buildText(q);
+  }
+
+  const isFirst = current === 0;
+  const isLast  = current === getText('questions').length - 1;
+  const t = i18n[currentLang];
+
+  return `
+    <div class="q-number">${currentLang === 'zh' ? `問題 ${current + 1} / ${getText('questions').length}` : `Question ${current + 1} / ${getText('questions').length}`}</div>
+    <div class="q-title">${q.title}</div>
+    ${body}
+    <div class="nav">
+      <button class="btn btn-prev" id="btn-prev" ${isFirst ? 'disabled' : ''}>${t.prevBtn}</button>
+      <button class="btn btn-next" id="btn-next">${isLast ? t.finishBtn : t.nextBtn}</button>
+    </div>
+  `;
+}
+
+function buildSlider(q) {
+  const val = answers[current] !== undefined ? answers[current] : q.defaultVal;
+  const display = q.displayMap ? q.displayMap(val) : val + (q.unit ? ' ' + q.unit : '');
+  const labelHtml = q.labels.map((l, i) =>
+    `<span style="position:absolute;left:${q.labelPositions[i]}%;transform:translateX(-50%)">${l}</span>`
+  ).join('');
+  return `
+    <div class="slider-wrap">
+      <div style="position:relative;height:20px;margin-bottom:14px;">${labelHtml}</div>
+      <input type="range" id="sl-${current}" min="${q.min}" max="${q.max}" step="${q.step}" value="${val}" />
+      <div class="slider-value" id="sv-${current}">${display}</div>
+    </div>
+  `;
+}
+
+function buildMulti(q) {
+  const chips = q.options.map(o =>
+    `<div class="chip" data-val="${o}">${o}</div>`
+  ).join('');
+  const t = i18n[currentLang];
+  return `
+    <div class="chips" id="chips-${current}">${chips}</div>
+    <div class="hint">💡 ${t.multiSelectHint}</div>
+  `;
+}
+
+function buildColorStyle(q) {
+  const chips = q.styles.map(s =>
+    `<div class="color-chip" data-val="${s.label}">
+       <div class="color-swatch" style="background:${s.color};"></div>
+       <span>${s.label}</span>
+     </div>`
+  ).join('');
+  const t = i18n[currentLang];
+  return `
+    <div class="color-chips" id="chips-${current}">${chips}</div>
+    <div class="hint">💡 ${t.multiSelectHint}</div>
+  `;
+}
+
+function buildText(q) {
+  return `
+    <textarea id="ta-${current}" placeholder="${q.placeholder || getText('uploadHint')}"></textarea>
+  `;
+}
+
+function buildMultiText(q) {
+  const chips = q.options.map(o =>
+    `<div class="chip" data-val="${o}">${o}</div>`
+  ).join('');
+  const t = i18n[currentLang];
+  return `
+    <div class="chips" id="chips-${current}">${chips}</div>
+    <div class="hint">💡 ${t.multiSelectHint}</div>
+    <div style="margin-top:20px;">
+      <label style="font-size:.9rem;color:var(--text-muted);display:block;margin-bottom:8px;">${q.textLabel}</label>
+      <textarea id="ta-${current}" placeholder="${q.textPlaceholder || getText('uploadHint')}"></textarea>
+    </div>
+  `;
+}
+
+// ─────────────────────────────────────────────
+//  Restore saved answers
+// ─────────────────────────────────────────────
+function restoreAnswer(q) {
+  const saved = answers[current];
+  if (saved === undefined) return;
+
+  if (q.min !== undefined) {
+    document.getElementById(`sl-${current}`).value = saved;
+    const display = q.displayMap ? q.displayMap(saved) : saved + (q.unit ? ' ' + q.unit : '');
+    document.getElementById(`sv-${current}`).textContent = display;
+  } else if (q.styles) {
+    const arr = saved || [];
+    document.querySelectorAll(`#chips-${current} .color-chip`).forEach(c => {
+      if (arr.includes(c.dataset.val)) c.classList.add('selected');
+    });
+  } else if (q.options) {
+    const arr = Array.isArray(saved) ? saved : (saved && saved.chips) || [];
+    document.querySelectorAll(`#chips-${current} .chip`).forEach(c => {
+      if (arr.includes(c.dataset.val)) c.classList.add('selected');
+    });
+  } else if (q.textLabel) {
+    const arr = (saved && saved.chips) || [];
+    document.querySelectorAll(`#chips-${current} .chip`).forEach(c => {
+      if (arr.includes(c.dataset.val)) c.classList.add('selected');
+    });
+    document.getElementById(`ta-${current}`).value = (saved && saved.text) || '';
+  } else {
+    document.getElementById(`ta-${current}`).value = saved || '';
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Attach events
+// ─────────────────────────────────────────────
+function attachEvents(q) {
+  const questions = getText('questions');
+  
+  // Slider
+  if (q.min !== undefined) {
+    const sl = document.getElementById(`sl-${current}`);
+    sl.addEventListener('input', () => {
+      const v = +sl.value;
+      answers[current] = v;
+      const display = q.displayMap ? q.displayMap(v) : v + (q.unit ? ' ' + q.unit : '');
+      document.getElementById(`sv-${current}`).textContent = display;
+      updateSliderTrack(sl, q);
+    });
+    updateSliderTrack(sl, q);
+  }
+
+  // Multi chips
+  if (q.options && !q.textLabel) {
+    document.querySelectorAll(`#chips-${current} .chip`).forEach(c => {
+      c.addEventListener('click', () => {
+        c.classList.toggle('selected');
+        const sel = [...document.querySelectorAll(`#chips-${current} .chip.selected`)].map(x => x.dataset.val);
+        answers[current] = sel;
+      });
+    });
+  }
+
+  // Color-style chips
+  if (q.styles) {
+    document.querySelectorAll(`#chips-${current} .color-chip`).forEach(c => {
+      c.addEventListener('click', () => {
+        c.classList.toggle('selected');
+        const sel = [...document.querySelectorAll(`#chips-${current} .color-chip.selected`)].map(x => x.dataset.val);
+        answers[current] = sel;
+      });
+    });
+  }
+
+  // Text
+  if (!q.options && !q.styles && !q.min) {
+    document.getElementById(`ta-${current}`).addEventListener('input', e => {
+      answers[current] = e.target.value;
+    });
+  }
+
+  // Multi-text
+  if (q.textLabel) {
+    document.querySelectorAll(`#chips-${current} .chip`).forEach(c => {
+      c.addEventListener('click', () => {
+        c.classList.toggle('selected');
+        const sel = [...document.querySelectorAll(`#chips-${current} .chip.selected`)].map(x => x.dataset.val);
+        if (!answers[current]) answers[current] = {};
+        answers[current].chips = sel;
+      });
+    });
+    document.getElementById(`ta-${current}`).addEventListener('input', e => {
+      if (!answers[current]) answers[current] = {};
+      answers[current].text = e.target.value;
+    });
+  }
+
+  // Navigation
+  document.getElementById('btn-prev').addEventListener('click', () => {
+    if (current > 0) { current--; render(); }
+  });
+  document.getElementById('btn-next').addEventListener('click', () => {
+    if (current < questions.length - 1) {
+      current++;
+      render();
+    } else {
+      showFinish();
+    }
+  });
+}
+
+function updateSliderTrack(sl, q) {
+  const pct = ((sl.value - q.min) / (q.max - q.min)) * 100;
+  sl.style.background = `linear-gradient(90deg, var(--primary) ${pct}%, var(--border) ${pct}%)`;
+}
+
+// ─────────────────────────────────────────────
+//  Progress
+// ─────────────────────────────────────────────
+function updateProgress() {
+  const questions = getText('questions');
+  const pct = Math.round(((current + 1) / questions.length) * 100);
+  document.getElementById('prog-fill').style.width = pct + '%';
+  document.getElementById('prog-label').textContent = currentLang === 'zh' 
+    ? `問題 ${current + 1} / ${questions.length}` 
+    : `Question ${current + 1} / ${questions.length}`;
+  document.getElementById('prog-pct').textContent = pct + '%';
+}
+
+// ─────────────────────────────────────────────
+//  Finish
+// ─────────────────────────────────────────────
+function showFinish() {
+  const t = i18n[currentLang];
+  const card = document.getElementById('quiz-card');
+  card.innerHTML = `
+    <div id="finish-screen" style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:40px 20px;">
+      <div class="finish-icon">🎉</div>
+      <h2>${t.finishTitle}</h2>
+      <p>${t.finishMsg}</p>
+      <a class="btn-result" href="result.html">${t.viewReport}</a>
+    </div>
+  `;
+  document.querySelector('.progress-bar-fill').style.width = '100%';
+  document.getElementById('prog-label').textContent = currentLang === 'zh' ? '問卷完成' : 'Survey Complete';
+  document.getElementById('prog-pct').textContent = '100%';
+
+  // Save answers & floor plan
+  localStorage.setItem('interiorAnswers', JSON.stringify(answers));
+  if (floorPlanFile) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      localStorage.setItem('floorPlanData', e.target.result);
+      localStorage.setItem('floorPlanName', floorPlanFile.name);
+    };
+    reader.readAsDataURL(floorPlanFile);
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Init
+// ─────────────────────────────────────────────
+renderUploadStage();
+</script>
+</body>
+</html>
