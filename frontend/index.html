@@ -124,6 +124,7 @@ let leftController, rightController;
 let ground;
 let currentSession = null;
 let xrMode = 'VR';
+let sharedRoot;
 
 const loader = new GLTFLoader();
 const grabbableObjects = [];
@@ -154,6 +155,10 @@ let ws = null;
 const objectsById = new Map();
 const SYNC_INTERVAL_MS = 80;
 
+let anchorArrow = null;
+let anchorSaved = false;
+let anchorMaterial = null;
+
 
 init();
 animate();
@@ -177,6 +182,15 @@ function init() {
   renderer.toneMappingExposure = 1.1;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  renderer.xr.addEventListener('sessionstart', () => {
+    if (xrMode === 'AR' && anchorArrow) {
+      anchorArrow.visible = true;
+      anchorSaved = false;
+      placeAnchorArrowInFront();
+      updateAnchorVisuals();
+    }
+  });
 
   document.body.appendChild(renderer.domElement);
 
@@ -203,6 +217,11 @@ function init() {
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
+
+  sharedRoot = new THREE.Group();
+  scene.add(sharedRoot);
+
+  ensureAnchorArrow();
 
   leftController = renderer.xr.getController(0);
   rightController = renderer.xr.getController(1);
@@ -339,7 +358,7 @@ async function processAudio() {
 }
 
 function handleSpeechCommand(text, obj) {
-  if (!obj) return;
+  if (!obj || obj.userData?.isAnchorArrow) return;
 
   const t = text
     .toLowerCase()
@@ -443,11 +462,22 @@ async function startXR(){
     scene.background = new THREE.Color(0xcfe8ff);
     scene.fog = new THREE.Fog(0xcfe8ff, 8, 25);
     ground.visible = true;
+    sharedRoot.position.set(0, 0, 0);
+    sharedRoot.rotation.set(0, 0, 0);
+    if (anchorArrow) anchorArrow.visible = false;
+    anchorSaved = false;
+    updateAnchorVisuals();
   } else {
     currentSession = await navigator.xr.requestSession('immersive-ar', { optionalFeatures:['local-floor','hit-test'] });
     scene.background = null;
     scene.fog = null;
     ground.visible = false;
+    if (anchorArrow) {
+      anchorArrow.visible = true;
+      anchorSaved = false;
+      placeAnchorArrowInFront();
+      updateAnchorVisuals();
+    }
   }
   renderer.xr.setSession(currentSession);
 }
@@ -536,6 +566,77 @@ async function applySharedXrMode(mode) {
   suppressXrBroadcast = false;
 }
 
+function ensureAnchorArrow() {
+  if (anchorArrow) return;
+
+  anchorMaterial = new THREE.MeshStandardMaterial({ color: 0xff8c00, metalness: 0.1, roughness: 0.6 });
+
+  const shaftGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.25, 12);
+  const headGeo = new THREE.ConeGeometry(0.03, 0.08, 12);
+
+  const shaft = new THREE.Mesh(shaftGeo, anchorMaterial);
+  shaft.rotation.x = Math.PI / 2;
+
+  const head = new THREE.Mesh(headGeo, anchorMaterial);
+  head.rotation.x = Math.PI / 2;
+  head.position.z = 0.18;
+
+  const baseGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.01, 16);
+  const base = new THREE.Mesh(baseGeo, anchorMaterial);
+  base.position.y = -0.03;
+
+  anchorArrow = new THREE.Group();
+  anchorArrow.userData.isAnchorArrow = true;
+  anchorArrow.add(shaft, head, base);
+  anchorArrow.visible = false;
+
+  scene.add(anchorArrow);
+  grabbableObjects.push(anchorArrow);
+}
+
+function placeAnchorArrowInFront() {
+  const xrCamera = renderer.xr.getCamera(camera);
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  xrCamera.getWorldPosition(pos);
+  xrCamera.getWorldQuaternion(quat);
+
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+  anchorArrow.position.copy(pos).add(forward.multiplyScalar(1));
+  anchorArrow.position.y = pos.y - 0.3;
+
+  const euler = new THREE.Euler().setFromQuaternion(quat, 'YXZ');
+  anchorArrow.rotation.set(0, euler.y + Math.PI, 0);
+}
+
+function setWorldPosition(obj, worldPos) {
+  const localPos = worldPos.clone();
+  if (obj.parent) obj.parent.worldToLocal(localPos);
+  obj.position.copy(localPos);
+}
+
+function updateAnchorVisuals() {
+  if (!anchorMaterial) return;
+  anchorMaterial.color.set(anchorSaved ? 0x2ecc71 : 0xff8c00);
+}
+
+function saveAnchorFromArrow() {
+  if (!anchorArrow) return;
+  sharedRoot.position.copy(anchorArrow.position);
+  sharedRoot.rotation.set(anchorArrow.rotation.x, anchorArrow.rotation.y, anchorArrow.rotation.z);
+  sharedRoot.scale.set(1, 1, 1);
+  anchorSaved = true;
+  if (rightController?.userData?.grabbedObject === anchorArrow) {
+    rightController.userData.grabbedObject = null;
+  }
+  updateAnchorVisuals();
+}
+
+function unlockAnchor() {
+  anchorSaved = false;
+  updateAnchorVisuals();
+}
+
 function spawnFromSharedState(shared) {
   if (!shared || !shared.id || !shared.source) return;
   if (objectsById.has(shared.id)) return;
@@ -564,7 +665,7 @@ function spawnFromSharedState(shared) {
 }
 
 function removeSharedObject(obj) {
-  scene.remove(obj);
+  sharedRoot.remove(obj);
   const idx = grabbableObjects.indexOf(obj);
   if (idx !== -1) grabbableObjects.splice(idx, 1);
   if (obj.userData?.id) objectsById.delete(obj.userData.id);
@@ -635,7 +736,7 @@ function spawnGLB(url, options = {}) {
         });
 
         wrapper.add(gltf.scene);
-        scene.add(wrapper);
+        sharedRoot.add(wrapper);
         grabbableObjects.push(wrapper);
 
         if (id) {
@@ -798,6 +899,7 @@ function updateRayLength(ctrl,len){
 function grabStart(ctrl){
   const hit = raycast(ctrl);
   if (!hit) return;
+  if (hit.objectRoot?.userData?.isAnchorArrow && anchorSaved) return;
   ctrl.userData.grabbedObject = hit.objectRoot;
   ctrl.userData.distance = hit.distance;
 }
@@ -830,7 +932,10 @@ function render() {
   const hoveredByRight = rightHit ? rightHit.objectRoot : null;
   const hoveredByLeft  = leftHit  ? leftHit.objectRoot  : null;
 
-  hoveredObjectForSpeech = hoveredByRight || hoveredByLeft;
+  const rightIsAnchor = hoveredByRight?.userData?.isAnchorArrow && xrMode === 'AR';
+  const leftIsAnchor = hoveredByLeft?.userData?.isAnchorArrow && xrMode === 'AR';
+
+  hoveredObjectForSpeech = (rightIsAnchor || leftIsAnchor) ? null : (hoveredByRight || hoveredByLeft);
   
   /* ---------- LOADING ROTATION ---------- */
   grabbableObjects.forEach(obj => {
@@ -844,6 +949,7 @@ function render() {
 
   if (
     hoveredByRight &&
+    !hoveredByRight.userData?.isAnchorArrow &&
     rightController.userData.grabbedObject &&
     rightController.userData.rotate
   ) {
@@ -852,6 +958,7 @@ function render() {
 
   if (
     hoveredByLeft &&
+    !hoveredByLeft.userData?.isAnchorArrow &&
     leftController.userData.scaleUp &&
     leftController.userData.scaleDown
   ) {
@@ -871,7 +978,35 @@ function render() {
   }
 
   /* ---------- RIGHT CONTROLLER ---------- */
-  if (comboActive && hoveredByRight) {
+  if (rightIsAnchor) {
+    if (!anchorSaved) {
+      if (rightController.userData.grabbedObject === anchorArrow) {
+        setRayColor(rightController, RAY_ACTIVE);
+
+        const pos = new THREE.Vector3().setFromMatrixPosition(rightController.matrixWorld);
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(rightController.quaternion);
+
+        const target = pos.add(dir.multiplyScalar(rightController.userData.distance));
+        setWorldPosition(anchorArrow, target);
+
+        if (rightController.userData.rotate) {
+          anchorArrow.rotation.y -= 0.04;
+        }
+
+        updateRayLength(rightController, rightController.userData.distance);
+      } else {
+        if (rightController.userData.rotate) {
+          anchorArrow.rotation.y -= 0.04;
+        }
+        setRayColor(rightController, rightController.userData.rotate ? RAY_ACTIVE : RAY_HOVER);
+        updateRayLength(rightController, rightHit.distance);
+      }
+    } else {
+      setRayColor(rightController, RAY_HOVER);
+      updateRayLength(rightController, rightHit.distance);
+    }
+
+  } else if (comboActive && hoveredByRight) {
     // Voice-command mode: no manipulation
     setRayColor(rightController, RAY_RECORDING);
     updateRayLength(rightController, rightHit.distance);
@@ -883,9 +1018,8 @@ function render() {
     const pos = new THREE.Vector3().setFromMatrixPosition(rightController.matrixWorld);
     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(rightController.quaternion);
 
-    grabbed.position.copy(
-      pos.add(dir.multiplyScalar(rightController.userData.distance))
-    );
+    const target = pos.add(dir.multiplyScalar(rightController.userData.distance));
+    setWorldPosition(grabbed, target);
 
     if (rightController.userData.rotate) {
       grabbed.rotation.y -= 0.04;
@@ -915,7 +1049,17 @@ function render() {
   }
 
   /* ---------- LEFT CONTROLLER ---------- */
-  if (comboActive && hoveredByLeft) {
+  if (leftIsAnchor) {
+    if (!anchorSaved && leftController.userData.scaleUp) {
+      saveAnchorFromArrow();
+    }
+    if (anchorSaved && leftController.userData.scaleDown) {
+      unlockAnchor();
+    }
+    setRayColor(leftController, anchorSaved ? RAY_ACTIVE : RAY_HOVER);
+    updateRayLength(leftController, leftHit.distance);
+
+  } else if (comboActive && hoveredByLeft) {
     // Voice-command mode: no manipulation
     setRayColor(leftController, RAY_RECORDING);
     updateRayLength(leftController, leftHit.distance);
