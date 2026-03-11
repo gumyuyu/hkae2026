@@ -144,8 +144,15 @@ let speechMode = 'PROMPT'; // 'PROMPT' | 'COMMAND'
 let hoveredObjectForSpeech = null;
 let autoRecording = false;
 
+let suppressXrBroadcast = false;
+
 const API_TOKEN = "super_secret_api_token_123"; // REPLACE with your actual token
 const SPACE_URL = "https://riasad-fyp-backend.hkbu.dev/generate";
+
+const clientId = crypto.randomUUID();
+let ws = null;
+const objectsById = new Map();
+const SYNC_INTERVAL_MS = 80;
 
 
 init();
@@ -230,9 +237,14 @@ function init() {
       await currentSession.end();
       await startXR();
     }
+    if (!suppressXrBroadcast) {
+      sendWS({ type: 'xr-mode', mode: xrMode, senderId: clientId });
+    }
   });
 
   window.addEventListener('resize', onResize);
+
+  connectWebSocket();
 
 }
 
@@ -399,13 +411,16 @@ function handleSpeechCommand(text, obj) {
     t.includes('clear') ||
     t.includes('kill')
   ) {
-    scene.remove(obj);
-    const idx = grabbableObjects.indexOf(obj);
-    if (idx !== -1) grabbableObjects.splice(idx, 1);
+    const id = obj.userData?.id;
+    removeSharedObject(obj);
+    if (id) {
+      sendWS({ type: 'delete', id, senderId: clientId });
+    }
     return;
   }
 
   clampToFloor(obj);
+  maybeSyncTransform(obj);
 }
 
 
@@ -437,18 +452,178 @@ async function startXR(){
   renderer.xr.setSession(currentSession);
 }
 
+/* ---------------- SHARED WORLD ---------------- */
+function connectWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${protocol}://${window.location.host}`;
+
+  ws = new WebSocket(wsUrl);
+
+  ws.addEventListener('message', event => {
+    let msg;
+    try {
+      msg = JSON.parse(event.data);
+    } catch (err) {
+      return;
+    }
+
+    if (!msg || (msg.senderId && msg.senderId === clientId)) return;
+    handleWSMessage(msg);
+  });
+
+  ws.addEventListener('close', () => {
+    setTimeout(connectWebSocket, 1000);
+  });
+}
+
+function sendWS(message) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify(message));
+}
+
+function handleWSMessage(msg) {
+  if (msg.type === 'init' && Array.isArray(msg.objects)) {
+    msg.objects.forEach(obj => spawnFromSharedState(obj));
+    if (msg.xrMode) applySharedXrMode(msg.xrMode);
+    return;
+  }
+
+  if (msg.type === 'create' && msg.object) {
+    spawnFromSharedState(msg.object);
+    return;
+  }
+
+  if (msg.type === 'replace' && msg.id && msg.source) {
+    const obj = objectsById.get(msg.id);
+    if (obj) {
+      if (typeof msg.isLoading === 'boolean') {
+        obj.userData.isLoading = msg.isLoading;
+      }
+      loadSourceIntoWrapper(obj, msg.source);
+    }
+    return;
+  }
+
+  if (msg.type === 'update' && msg.id && msg.transform) {
+    const obj = objectsById.get(msg.id);
+    if (obj) applyTransform(obj, msg.transform);
+    return;
+  }
+
+  if (msg.type === 'delete' && msg.id) {
+    const obj = objectsById.get(msg.id);
+    if (obj) removeSharedObject(obj);
+    return;
+  }
+
+  if (msg.type === 'xr-mode' && (msg.mode === 'VR' || msg.mode === 'AR')) {
+    applySharedXrMode(msg.mode);
+  }
+}
+
+async function applySharedXrMode(mode) {
+  if (xrMode === mode) return;
+
+  xrMode = mode;
+  suppressXrBroadcast = true;
+  const toggle = document.getElementById('arvrToggle');
+  toggle.checked = xrMode === 'AR';
+
+  if (currentSession) {
+    await currentSession.end();
+  }
+  await startXR();
+  suppressXrBroadcast = false;
+}
+
+function spawnFromSharedState(shared) {
+  if (!shared || !shared.id || !shared.source) return;
+  if (objectsById.has(shared.id)) return;
+
+  const { source, isLoading } = shared;
+  if (source.type === 'asset') {
+    spawnGLB(source.value, {
+      id: shared.id,
+      transform: shared.transform,
+      markLoading: Boolean(isLoading)
+    }).catch(err => {
+      console.error('Failed to spawn shared asset:', err);
+    });
+    return;
+  }
+
+  spawnGLB('/assets/loading.glb', {
+    id: shared.id,
+    transform: shared.transform,
+    markLoading: Boolean(isLoading)
+  }).then(wrapper => {
+    loadSourceIntoWrapper(wrapper, source);
+  }).catch(err => {
+    console.error('Failed to spawn shared object:', err);
+  });
+}
+
+function removeSharedObject(obj) {
+  scene.remove(obj);
+  const idx = grabbableObjects.indexOf(obj);
+  if (idx !== -1) grabbableObjects.splice(idx, 1);
+  if (obj.userData?.id) objectsById.delete(obj.userData.id);
+}
+
+function applyTransform(obj, transform) {
+  if (!transform) return;
+  if (transform.position) {
+    obj.position.set(transform.position.x, transform.position.y, transform.position.z);
+  }
+  if (transform.rotation) {
+    obj.rotation.set(transform.rotation.x, transform.rotation.y, transform.rotation.z);
+  }
+  if (transform.scale) {
+    obj.scale.set(transform.scale.x, transform.scale.y, transform.scale.z);
+  }
+}
+
+function getTransform(obj) {
+  return {
+    position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+    rotation: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z },
+    scale: { x: obj.scale.x, y: obj.scale.y, z: obj.scale.z }
+  };
+}
+
+function maybeSyncTransform(obj) {
+  if (!obj || !obj.userData?.id) return;
+  const now = performance.now();
+  const last = obj.userData.lastSync || 0;
+  if (now - last < SYNC_INTERVAL_MS) return;
+
+  obj.userData.lastSync = now;
+  sendWS({
+    type: 'update',
+    id: obj.userData.id,
+    transform: getTransform(obj),
+    senderId: clientId
+  });
+}
+
 /* ---------------- SPAWN ---------------- */
-function spawnGLB(url) {
+function spawnGLB(url, options = {}) {
+  const { id = null, transform = null, markLoading = false } = options;
+
   return new Promise((resolve, reject) => {
     loader.load(
       url,
       gltf => {
         const wrapper = new THREE.Group();
 
-        wrapper.position
-          .copy(camera.position)
-          .add(new THREE.Vector3(0, 0, -2).applyQuaternion(camera.quaternion));
-        wrapper.scale.setScalar(0.5);
+        if (transform) {
+          applyTransform(wrapper, transform);
+        } else {
+          wrapper.position
+            .copy(camera.position)
+            .add(new THREE.Vector3(0, 0, -2).applyQuaternion(camera.quaternion));
+          wrapper.scale.setScalar(0.5);
+        }
 
         gltf.scene.traverse(n => {
           if (n.isMesh && n.material) {
@@ -463,8 +638,12 @@ function spawnGLB(url) {
         scene.add(wrapper);
         grabbableObjects.push(wrapper);
 
-        // ✅ PUT IT HERE
-        wrapper.userData.isLoading = true;
+        if (id) {
+          wrapper.userData.id = id;
+          objectsById.set(id, wrapper);
+        }
+
+        if (markLoading) wrapper.userData.isLoading = true;
 
         resolve(wrapper);
       },
@@ -486,6 +665,36 @@ function replaceWrapperContent(wrapper, newScene) {
   wrapper.add(newScene);
 }
 
+function base64ToObjectUrl(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: "model/gltf-binary" });
+  return URL.createObjectURL(blob);
+}
+
+function loadSourceIntoWrapper(wrapper, source) {
+  if (!source || !source.type || !source.value) return;
+
+  const url = source.type === 'base64' ? base64ToObjectUrl(source.value) : source.value;
+
+  loader.load(url, gltf => {
+    gltf.scene.traverse(n => {
+      if (n.isMesh && n.material) {
+        n.material.side = THREE.DoubleSide;
+        if ("metalness" in n.material) n.material.metalness = 0.3;
+        if ("roughness" in n.material) n.material.roughness = 0.7;
+        n.material.needsUpdate = true;
+      }
+    });
+
+    replaceWrapperContent(wrapper, gltf.scene);
+    if (source.type === 'base64') URL.revokeObjectURL(url);
+  });
+}
+
 
 async function sendPrompt() {
   const input = document.getElementById("promptInput");
@@ -494,7 +703,22 @@ async function sendPrompt() {
   // 1. Spawn loading placeholder
   let wrapper;
   try {
-    wrapper = await spawnGLB("/assets/loading.glb");
+    const objectId = crypto.randomUUID();
+    wrapper = await spawnGLB("/assets/loading.glb", {
+      id: objectId,
+      markLoading: true
+    });
+
+    sendWS({
+      type: 'create',
+      senderId: clientId,
+      object: {
+        id: objectId,
+        source: { type: 'asset', value: '/assets/loading.glb' },
+        isLoading: true,
+        transform: getTransform(wrapper)
+      }
+    });
   } catch (e) {
     console.error("Failed to load loading.glb", e);
     return;
@@ -517,37 +741,29 @@ async function sendPrompt() {
     const base64 = json?.result?.object_base64;
     if (!base64) throw new Error("No object_base64");
 
-    // 3. Decode base64 → blob
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
+    // 3. Load generated model into local wrapper
+    loadSourceIntoWrapper(wrapper, { type: 'base64', value: base64 });
 
-    const blob = new Blob([bytes], { type: "model/gltf-binary" });
-    const url = URL.createObjectURL(blob);
-
-    // 4. Load generated model
-    loader.load(url, gltf => {
-      gltf.scene.traverse(n => {
-        if (n.isMesh && n.material) {
-          n.material.side = THREE.DoubleSide;
-          if ("metalness" in n.material) n.material.metalness = 0.3;
-          if ("roughness" in n.material) n.material.roughness = 0.7;
-          n.material.needsUpdate = true;
-        }
-      });
-
-      replaceWrapperContent(wrapper, gltf.scene);
-      URL.revokeObjectURL(url);
+    // 4. Broadcast to shared world
+    sendWS({
+      type: 'replace',
+      id: wrapper.userData.id,
+      source: { type: 'base64', value: base64 },
+      isLoading: false,
+      senderId: clientId
     });
 
   } catch (err) {
     console.error("Generation failed:", err);
 
     // 5. Replace with failure model
-    loader.load("/assets/failed.glb", gltf => {
-      replaceWrapperContent(wrapper, gltf.scene);
+    loadSourceIntoWrapper(wrapper, { type: 'asset', value: '/assets/failed.glb' });
+    sendWS({
+      type: 'replace',
+      id: wrapper.userData.id,
+      source: { type: 'asset', value: '/assets/failed.glb' },
+      isLoading: false,
+      senderId: clientId
     });
   }
 
@@ -677,12 +893,14 @@ function render() {
 
     clampToFloor(grabbed);
     updateRayLength(rightController, rightController.userData.distance);
+    maybeSyncTransform(grabbed);
 
   } else if (rightHit) {
     const obj = rightHit.objectRoot;
 
     if (rightController.userData.rotate) {
       obj.rotation.y -= 0.04;
+      maybeSyncTransform(obj);
     }
 
     setRayColor(
@@ -711,6 +929,9 @@ function render() {
 
     obj.scale.clampScalar(0.1, 5);
     clampToFloor(obj);
+    if (leftController.userData.scaleUp || leftController.userData.scaleDown) {
+      maybeSyncTransform(obj);
+    }
 
     if (leftController.userData.scaleUp || leftController.userData.scaleDown) {
       setRayColor(leftController, RAY_ACTIVE);
