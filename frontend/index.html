@@ -158,6 +158,7 @@ const SYNC_INTERVAL_MS = 80;
 let anchorArrow = null;
 let anchorSaved = false;
 let anchorMaterial = null;
+let anchorSavedTransform = null;
 
 
 init();
@@ -185,10 +186,7 @@ function init() {
 
   renderer.xr.addEventListener('sessionstart', () => {
     if (xrMode === 'AR' && anchorArrow) {
-      anchorArrow.visible = true;
-      anchorSaved = false;
-      placeAnchorArrowInFront();
-      updateAnchorVisuals();
+      prepareAnchorForAr();
     }
   });
 
@@ -465,7 +463,6 @@ async function startXR(){
     sharedRoot.position.set(0, 0, 0);
     sharedRoot.rotation.set(0, 0, 0);
     if (anchorArrow) anchorArrow.visible = false;
-    anchorSaved = false;
     updateAnchorVisuals();
   } else {
     currentSession = await navigator.xr.requestSession('immersive-ar', { optionalFeatures:['local-floor','hit-test'] });
@@ -473,10 +470,7 @@ async function startXR(){
     scene.fog = null;
     ground.visible = false;
     if (anchorArrow) {
-      anchorArrow.visible = true;
-      anchorSaved = false;
-      placeAnchorArrowInFront();
-      updateAnchorVisuals();
+      prepareAnchorForAr();
     }
   }
   renderer.xr.setSession(currentSession);
@@ -607,6 +601,7 @@ function placeAnchorArrowInFront() {
 
   const euler = new THREE.Euler().setFromQuaternion(quat, 'YXZ');
   anchorArrow.rotation.set(0, euler.y + Math.PI, 0);
+  clampToFloor(anchorArrow);
 }
 
 function setWorldPosition(obj, worldPos) {
@@ -620,11 +615,47 @@ function updateAnchorVisuals() {
   anchorMaterial.color.set(anchorSaved ? 0x2ecc71 : 0xff8c00);
 }
 
+function applySavedAnchorToRoot() {
+  if (!anchorSavedTransform) return;
+  sharedRoot.position.copy(anchorSavedTransform.position);
+  sharedRoot.rotation.set(
+    anchorSavedTransform.rotation.x,
+    anchorSavedTransform.rotation.y,
+    anchorSavedTransform.rotation.z
+  );
+}
+
+function placeArrowAtSaved() {
+  if (!anchorArrow || !anchorSavedTransform) return;
+  anchorArrow.position.copy(anchorSavedTransform.position);
+  anchorArrow.rotation.set(
+    anchorSavedTransform.rotation.x,
+    anchorSavedTransform.rotation.y,
+    anchorSavedTransform.rotation.z
+  );
+}
+
+function prepareAnchorForAr() {
+  anchorArrow.visible = true;
+  if (anchorSaved && anchorSavedTransform) {
+    applySavedAnchorToRoot();
+    placeArrowAtSaved();
+  } else {
+    placeAnchorArrowInFront();
+    saveAnchorFromArrow();
+  }
+  updateAnchorVisuals();
+}
+
 function saveAnchorFromArrow() {
   if (!anchorArrow) return;
   sharedRoot.position.copy(anchorArrow.position);
   sharedRoot.rotation.set(anchorArrow.rotation.x, anchorArrow.rotation.y, anchorArrow.rotation.z);
   sharedRoot.scale.set(1, 1, 1);
+  anchorSavedTransform = {
+    position: anchorArrow.position.clone(),
+    rotation: anchorArrow.rotation.clone()
+  };
   anchorSaved = true;
   if (rightController?.userData?.grabbedObject === anchorArrow) {
     rightController.userData.grabbedObject = null;
@@ -656,7 +687,8 @@ function spawnFromSharedState(shared) {
   spawnGLB('/assets/loading.glb', {
     id: shared.id,
     transform: shared.transform,
-    markLoading: Boolean(isLoading)
+    markLoading: Boolean(isLoading),
+    resetOnReplace: false
   }).then(wrapper => {
     loadSourceIntoWrapper(wrapper, source);
   }).catch(err => {
@@ -709,7 +741,7 @@ function maybeSyncTransform(obj) {
 
 /* ---------------- SPAWN ---------------- */
 function spawnGLB(url, options = {}) {
-  const { id = null, transform = null, markLoading = false } = options;
+  const { id = null, transform = null, markLoading = false, resetOnReplace = false } = options;
 
   return new Promise((resolve, reject) => {
     loader.load(
@@ -720,9 +752,22 @@ function spawnGLB(url, options = {}) {
         if (transform) {
           applyTransform(wrapper, transform);
         } else {
-          wrapper.position
-            .copy(camera.position)
-            .add(new THREE.Vector3(0, 0, -2).applyQuaternion(camera.quaternion));
+          const originPos = new THREE.Vector3();
+          const originQuat = new THREE.Quaternion();
+
+          if (anchorArrow && anchorArrow.visible) {
+            anchorArrow.getWorldPosition(originPos);
+            anchorArrow.getWorldQuaternion(originQuat);
+          } else {
+            const xrCamera = renderer.xr.getCamera(camera);
+            xrCamera.getWorldPosition(originPos);
+            xrCamera.getWorldQuaternion(originQuat);
+          }
+
+          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(originQuat);
+          const target = originPos.add(forward.multiplyScalar(1.2));
+          setWorldPosition(wrapper, target);
+          wrapper.rotation.set(0, new THREE.Euler().setFromQuaternion(originQuat, 'YXZ').y, 0);
           wrapper.scale.setScalar(0.5);
         }
 
@@ -745,6 +790,8 @@ function spawnGLB(url, options = {}) {
         }
 
         if (markLoading) wrapper.userData.isLoading = true;
+        if (markLoading && !resetOnReplace) wrapper.userData.baseRotation = wrapper.rotation.clone();
+        if (markLoading) wrapper.userData.resetOnReplace = resetOnReplace;
 
         resolve(wrapper);
       },
@@ -761,7 +808,13 @@ function replaceWrapperContent(wrapper, newScene) {
   while (wrapper.children.length > 0) {
     wrapper.remove(wrapper.children[0]);
   }
-  wrapper.rotation.set(0, 0, 0);
+  if (wrapper.userData.resetOnReplace) {
+    wrapper.rotation.set(0, 0, 0);
+    delete wrapper.userData.resetOnReplace;
+  } else if (wrapper.userData.baseRotation) {
+    wrapper.rotation.copy(wrapper.userData.baseRotation);
+    delete wrapper.userData.baseRotation;
+  }
 
   wrapper.add(newScene);
 }
@@ -807,7 +860,8 @@ async function sendPrompt() {
     const objectId = crypto.randomUUID();
     wrapper = await spawnGLB("/assets/loading.glb", {
       id: objectId,
-      markLoading: true
+      markLoading: true,
+      resetOnReplace: true
     });
 
     sendWS({
@@ -988,6 +1042,7 @@ function render() {
 
         const target = pos.add(dir.multiplyScalar(rightController.userData.distance));
         setWorldPosition(anchorArrow, target);
+        clampToFloor(anchorArrow);
 
         if (rightController.userData.rotate) {
           anchorArrow.rotation.y -= 0.04;
