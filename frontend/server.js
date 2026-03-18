@@ -19,6 +19,7 @@ const options = {
 // Shared in-memory world state (resets on server restart)
 const worldState = new Map();
 let sharedXrMode = 'VR';
+const socketToClientId = new Map();
 
 function broadcast(message, excludeSocket) {
   const payload = JSON.stringify(message);
@@ -50,6 +51,9 @@ wss.on('connection', socket => {
     }
 
     if (!msg || !msg.type) return;
+    if (msg.senderId) {
+      socketToClientId.set(socket, msg.senderId);
+    }
 
     if (msg.type === 'create' && msg.object && msg.object.id) {
       if (!msg.object.source && msg.object.base64) {
@@ -109,6 +113,32 @@ wss.on('connection', socket => {
       return;
     }
 
+    if (msg.type === 'user-state' && msg.position) {
+      broadcast({
+        type: 'user-state',
+        position: msg.position,
+        senderId: msg.senderId
+      }, socket);
+      return;
+    }
+
+    if (msg.type === 'user-leave' && msg.senderId) {
+      socketToClientId.delete(socket);
+      broadcast({
+        type: 'user-leave',
+        senderId: msg.senderId
+      }, socket);
+      return;
+    }
+
+
+  socket.on('close', () => {
+    const senderId = socketToClientId.get(socket);
+    if (senderId) {
+      socketToClientId.delete(socket);
+      broadcast({ type: 'user-leave', senderId });
+    }
+  });
     if (msg.type === 'delete' && msg.id) {
       if (worldState.delete(msg.id)) {
         broadcast({

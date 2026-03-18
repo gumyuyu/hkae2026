@@ -105,7 +105,15 @@ Rules:
         - used_tool: the tool suggested by the AI
         - params: parameters suggested
         """
-        decision = await self._decide_tool(payload)
+        decision = None
+        if payload.get("image_base64"):
+            decision = {
+                "tool": "generate_object",
+                "params": {"image_base64": payload["image_base64"]}
+            }
+        else:
+            decision = await self._decide_tool(payload)
+
         print(f"[AIAgent] Decided to use tool: {decision}")
 
         # Here you would call your MCP server if you still have one.
