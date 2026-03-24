@@ -100,6 +100,8 @@
 
   <!-- === NEW CODE: Record button === -->
   <button id="recordButton">Record</button>
+  <button id="mediaButton">Add Media</button>
+  <input id="mediaInput" type="file" accept="image/*" style="display:none">
 
   <button id="xrButton">Enter XR</button>
 
@@ -124,6 +126,7 @@ let leftController, rightController;
 let ground;
 let currentSession = null;
 let xrMode = 'VR';
+let sharedRoot;
 
 const loader = new GLTFLoader();
 const grabbableObjects = [];
@@ -144,8 +147,25 @@ let speechMode = 'PROMPT'; // 'PROMPT' | 'COMMAND'
 let hoveredObjectForSpeech = null;
 let autoRecording = false;
 
+let suppressXrBroadcast = false;
+
 const API_TOKEN = "super_secret_api_token_123"; // REPLACE with your actual token
 const SPACE_URL = "https://riasad-fyp-backend.hkbu.dev/generate";
+
+const clientId = crypto.randomUUID();
+let ws = null;
+const objectsById = new Map();
+const SYNC_INTERVAL_MS = 80;
+const USER_SYNC_INTERVAL_MS = 200;
+
+const userMarkers = new Map();
+let userMarkerGroup = null;
+let lastUserSync = 0;
+
+let anchorArrow = null;
+let anchorSaved = false;
+let anchorMaterial = null;
+let anchorSavedTransform = null;
 
 
 init();
@@ -170,6 +190,17 @@ function init() {
   renderer.toneMappingExposure = 1.1;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  renderer.xr.addEventListener('sessionstart', () => {
+    if (xrMode === 'AR' && anchorArrow) {
+      prepareAnchorForAr();
+    }
+  });
+  renderer.xr.addEventListener('sessionend', () => {
+    currentSession = null;
+    document.getElementById('xrButton').textContent = 'Enter XR';
+    sendWS({ type: 'user-leave', senderId: clientId });
+  });
 
   document.body.appendChild(renderer.domElement);
 
@@ -197,6 +228,14 @@ function init() {
   ground.receiveShadow = true;
   scene.add(ground);
 
+  sharedRoot = new THREE.Group();
+  scene.add(sharedRoot);
+
+  userMarkerGroup = new THREE.Group();
+  sharedRoot.add(userMarkerGroup);
+
+  ensureAnchorArrow();
+
   leftController = renderer.xr.getController(0);
   rightController = renderer.xr.getController(1);
   scene.add(leftController, rightController);
@@ -222,6 +261,41 @@ function init() {
   document.getElementById('xrButton').onclick = toggleXRSession;
 
   document.getElementById('recordButton').onclick = toggleRecording;
+  const mediaButton = document.getElementById('mediaButton');
+  const mediaInput = document.getElementById('mediaInput');
+  mediaButton.onclick = () => {
+    mediaInput.value = '';
+    mediaInput.click();
+  };
+  mediaInput.addEventListener('change', async e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!file.type || !file.type.startsWith('image/')) {
+      console.error('Selected file is not an image');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => {
+      console.error('Failed to read image file');
+      mediaInput.value = '';
+    };
+    reader.onload = async () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        console.error('Unexpected FileReader result');
+        return;
+      }
+      const base64 = result.includes(',') ? result.split(',', 2)[1] : result;
+      try {
+        await sendImageBase64(base64);
+      } catch (err) {
+        console.error('Failed to send media image:', err);
+      }
+      mediaInput.value = '';
+    };
+    reader.readAsDataURL(file);
+  });
 
   const toggle = document.getElementById('arvrToggle');
   toggle.addEventListener('change', async e => {
@@ -230,9 +304,17 @@ function init() {
       await currentSession.end();
       await startXR();
     }
+    if (!suppressXrBroadcast) {
+      sendWS({ type: 'xr-mode', mode: xrMode, senderId: clientId });
+    }
   });
 
   window.addEventListener('resize', onResize);
+  window.addEventListener('beforeunload', () => {
+    sendWS({ type: 'user-leave', senderId: clientId });
+  });
+
+  connectWebSocket();
 
 }
 
@@ -327,7 +409,7 @@ async function processAudio() {
 }
 
 function handleSpeechCommand(text, obj) {
-  if (!obj) return;
+  if (!obj || obj.userData?.isAnchorArrow) return;
 
   const t = text
     .toLowerCase()
@@ -399,13 +481,16 @@ function handleSpeechCommand(text, obj) {
     t.includes('clear') ||
     t.includes('kill')
   ) {
-    scene.remove(obj);
-    const idx = grabbableObjects.indexOf(obj);
-    if (idx !== -1) grabbableObjects.splice(idx, 1);
+    const id = obj.userData?.id;
+    removeSharedObject(obj);
+    if (id) {
+      sendWS({ type: 'delete', id, senderId: clientId });
+    }
     return;
   }
 
   clampToFloor(obj);
+  maybeSyncTransform(obj);
 }
 
 
@@ -428,27 +513,362 @@ async function startXR(){
     scene.background = new THREE.Color(0xcfe8ff);
     scene.fog = new THREE.Fog(0xcfe8ff, 8, 25);
     ground.visible = true;
+    sharedRoot.position.set(0, 0, 0);
+    sharedRoot.rotation.set(0, 0, 0);
+    if (anchorArrow) anchorArrow.visible = false;
+    updateAnchorVisuals();
   } else {
     currentSession = await navigator.xr.requestSession('immersive-ar', { optionalFeatures:['local-floor','hit-test'] });
     scene.background = null;
     scene.fog = null;
     ground.visible = false;
+    if (anchorArrow) {
+      prepareAnchorForAr();
+    }
   }
   renderer.xr.setSession(currentSession);
+  currentSession.addEventListener('end', () => {
+    sendWS({ type: 'user-leave', senderId: clientId });
+  });
+}
+
+/* ---------------- SHARED WORLD ---------------- */
+function connectWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${protocol}://${window.location.host}`;
+
+  ws = new WebSocket(wsUrl);
+
+  ws.addEventListener('message', event => {
+    let msg;
+    try {
+      msg = JSON.parse(event.data);
+    } catch (err) {
+      return;
+    }
+
+    if (!msg || (msg.senderId && msg.senderId === clientId)) return;
+    handleWSMessage(msg);
+  });
+
+  ws.addEventListener('close', () => {
+    setTimeout(connectWebSocket, 1000);
+  });
+}
+
+function sendWS(message) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify(message));
+}
+
+function handleWSMessage(msg) {
+  if (msg.type === 'init' && Array.isArray(msg.objects)) {
+    msg.objects.forEach(obj => spawnFromSharedState(obj));
+    if (msg.xrMode) applySharedXrMode(msg.xrMode);
+    return;
+  }
+
+  if (msg.type === 'create' && msg.object) {
+    spawnFromSharedState(msg.object);
+    return;
+  }
+
+  if (msg.type === 'replace' && msg.id && msg.source) {
+    const obj = objectsById.get(msg.id);
+    if (obj) {
+      if (typeof msg.isLoading === 'boolean') {
+        obj.userData.isLoading = msg.isLoading;
+      }
+      loadSourceIntoWrapper(obj, msg.source);
+    }
+    return;
+  }
+
+  if (msg.type === 'update' && msg.id && msg.transform) {
+    const obj = objectsById.get(msg.id);
+    if (obj) applyTransform(obj, msg.transform);
+    return;
+  }
+
+  if (msg.type === 'delete' && msg.id) {
+    const obj = objectsById.get(msg.id);
+    if (obj) removeSharedObject(obj);
+    return;
+  }
+
+  if (msg.type === 'xr-mode' && (msg.mode === 'VR' || msg.mode === 'AR')) {
+    applySharedXrMode(msg.mode);
+    return;
+  }
+
+  if (msg.type === 'user-state' && msg.position && msg.senderId) {
+    updateUserMarker(msg.senderId, msg.position);
+    return;
+  }
+
+  if (msg.type === 'user-leave' && msg.senderId) {
+    removeUserMarker(msg.senderId);
+  }
+}
+
+function updateUserMarker(senderId, position) {
+  if (senderId === clientId) return;
+  if (!userMarkerGroup) return;
+
+  let marker = userMarkers.get(senderId);
+  if (!marker) {
+    const geometry = new THREE.SphereGeometry(0.06, 16, 12);
+    const material = new THREE.MeshStandardMaterial({ color: 0x2ecc71 });
+    marker = new THREE.Mesh(geometry, material);
+    userMarkerGroup.add(marker);
+    userMarkers.set(senderId, marker);
+  }
+
+  marker.position.set(position.x, position.y, position.z);
+}
+
+function removeUserMarker(senderId) {
+  const marker = userMarkers.get(senderId);
+  if (!marker || !userMarkerGroup) return;
+  userMarkerGroup.remove(marker);
+  userMarkers.delete(senderId);
+}
+
+function getLocalUserPosition() {
+  if (!sharedRoot) return null;
+  const xrCamera = renderer.xr.getCamera(camera);
+  const worldPos = new THREE.Vector3();
+  xrCamera.getWorldPosition(worldPos);
+  const localPos = worldPos.clone();
+  sharedRoot.worldToLocal(localPos);
+  return localPos;
+}
+
+async function applySharedXrMode(mode) {
+  if (xrMode === mode) return;
+
+  xrMode = mode;
+  suppressXrBroadcast = true;
+  const toggle = document.getElementById('arvrToggle');
+  toggle.checked = xrMode === 'AR';
+
+  if (currentSession) {
+    await currentSession.end();
+  }
+  await startXR();
+  suppressXrBroadcast = false;
+}
+
+function ensureAnchorArrow() {
+  if (anchorArrow) return;
+
+  anchorMaterial = new THREE.MeshStandardMaterial({ color: 0xff8c00, metalness: 0.1, roughness: 0.6 });
+
+  const shaftGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.25, 12);
+  const headGeo = new THREE.ConeGeometry(0.03, 0.08, 12);
+
+  const shaft = new THREE.Mesh(shaftGeo, anchorMaterial);
+  shaft.rotation.x = Math.PI / 2;
+
+  const head = new THREE.Mesh(headGeo, anchorMaterial);
+  head.rotation.x = Math.PI / 2;
+  head.position.z = 0.18;
+
+  const baseGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.01, 16);
+  const base = new THREE.Mesh(baseGeo, anchorMaterial);
+  base.position.y = -0.03;
+
+  anchorArrow = new THREE.Group();
+  anchorArrow.userData.isAnchorArrow = true;
+  anchorArrow.add(shaft, head, base);
+  anchorArrow.visible = false;
+
+  scene.add(anchorArrow);
+  grabbableObjects.push(anchorArrow);
+}
+
+function placeAnchorArrowInFront() {
+  const xrCamera = renderer.xr.getCamera(camera);
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  xrCamera.getWorldPosition(pos);
+  xrCamera.getWorldQuaternion(quat);
+
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+  anchorArrow.position.copy(pos).add(forward.multiplyScalar(1));
+  anchorArrow.position.y = pos.y - 0.3;
+
+  const euler = new THREE.Euler().setFromQuaternion(quat, 'YXZ');
+  anchorArrow.rotation.set(0, euler.y + Math.PI, 0);
+  clampToFloor(anchorArrow);
+}
+
+function setWorldPosition(obj, worldPos) {
+  const localPos = worldPos.clone();
+  if (obj.parent) obj.parent.worldToLocal(localPos);
+  obj.position.copy(localPos);
+}
+
+function updateAnchorVisuals() {
+  if (!anchorMaterial) return;
+  anchorMaterial.color.set(anchorSaved ? 0x2ecc71 : 0xff8c00);
+}
+
+function applySavedAnchorToRoot() {
+  if (!anchorSavedTransform) return;
+  sharedRoot.position.copy(anchorSavedTransform.position);
+  sharedRoot.rotation.set(
+    anchorSavedTransform.rotation.x,
+    anchorSavedTransform.rotation.y,
+    anchorSavedTransform.rotation.z
+  );
+}
+
+function placeArrowAtSaved() {
+  if (!anchorArrow || !anchorSavedTransform) return;
+  anchorArrow.position.copy(anchorSavedTransform.position);
+  anchorArrow.rotation.set(
+    anchorSavedTransform.rotation.x,
+    anchorSavedTransform.rotation.y,
+    anchorSavedTransform.rotation.z
+  );
+}
+
+function prepareAnchorForAr() {
+  anchorArrow.visible = true;
+  if (anchorSaved && anchorSavedTransform) {
+    applySavedAnchorToRoot();
+    placeArrowAtSaved();
+  } else {
+    placeAnchorArrowInFront();
+    saveAnchorFromArrow();
+  }
+  updateAnchorVisuals();
+}
+
+function saveAnchorFromArrow() {
+  if (!anchorArrow) return;
+  sharedRoot.position.copy(anchorArrow.position);
+  sharedRoot.rotation.set(anchorArrow.rotation.x, anchorArrow.rotation.y, anchorArrow.rotation.z);
+  sharedRoot.scale.set(1, 1, 1);
+  anchorSavedTransform = {
+    position: anchorArrow.position.clone(),
+    rotation: anchorArrow.rotation.clone()
+  };
+  anchorSaved = true;
+  if (rightController?.userData?.grabbedObject === anchorArrow) {
+    rightController.userData.grabbedObject = null;
+  }
+  updateAnchorVisuals();
+}
+
+function unlockAnchor() {
+  anchorSaved = false;
+  updateAnchorVisuals();
+}
+
+function spawnFromSharedState(shared) {
+  if (!shared || !shared.id || !shared.source) return;
+  if (objectsById.has(shared.id)) return;
+
+  const { source, isLoading } = shared;
+  if (source.type === 'asset') {
+    spawnGLB(source.value, {
+      id: shared.id,
+      transform: shared.transform,
+      markLoading: Boolean(isLoading)
+    }).catch(err => {
+      console.error('Failed to spawn shared asset:', err);
+    });
+    return;
+  }
+
+  spawnGLB('/assets/loading.glb', {
+    id: shared.id,
+    transform: shared.transform,
+    markLoading: Boolean(isLoading),
+    resetOnReplace: false
+  }).then(wrapper => {
+    loadSourceIntoWrapper(wrapper, source);
+  }).catch(err => {
+    console.error('Failed to spawn shared object:', err);
+  });
+}
+
+function removeSharedObject(obj) {
+  sharedRoot.remove(obj);
+  const idx = grabbableObjects.indexOf(obj);
+  if (idx !== -1) grabbableObjects.splice(idx, 1);
+  if (obj.userData?.id) objectsById.delete(obj.userData.id);
+}
+
+function applyTransform(obj, transform) {
+  if (!transform) return;
+  if (transform.position) {
+    obj.position.set(transform.position.x, transform.position.y, transform.position.z);
+  }
+  if (transform.rotation) {
+    obj.rotation.set(transform.rotation.x, transform.rotation.y, transform.rotation.z);
+  }
+  if (transform.scale) {
+    obj.scale.set(transform.scale.x, transform.scale.y, transform.scale.z);
+  }
+}
+
+function getTransform(obj) {
+  return {
+    position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+    rotation: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z },
+    scale: { x: obj.scale.x, y: obj.scale.y, z: obj.scale.z }
+  };
+}
+
+function maybeSyncTransform(obj) {
+  if (!obj || !obj.userData?.id) return;
+  const now = performance.now();
+  const last = obj.userData.lastSync || 0;
+  if (now - last < SYNC_INTERVAL_MS) return;
+
+  obj.userData.lastSync = now;
+  sendWS({
+    type: 'update',
+    id: obj.userData.id,
+    transform: getTransform(obj),
+    senderId: clientId
+  });
 }
 
 /* ---------------- SPAWN ---------------- */
-function spawnGLB(url) {
+function spawnGLB(url, options = {}) {
+  const { id = null, transform = null, markLoading = false, resetOnReplace = false } = options;
+
   return new Promise((resolve, reject) => {
     loader.load(
       url,
       gltf => {
         const wrapper = new THREE.Group();
 
-        wrapper.position
-          .copy(camera.position)
-          .add(new THREE.Vector3(0, 0, -2).applyQuaternion(camera.quaternion));
-        wrapper.scale.setScalar(0.5);
+        if (transform) {
+          applyTransform(wrapper, transform);
+        } else {
+          const originPos = new THREE.Vector3();
+          const originQuat = new THREE.Quaternion();
+
+          if (anchorArrow && anchorArrow.visible) {
+            anchorArrow.getWorldPosition(originPos);
+            anchorArrow.getWorldQuaternion(originQuat);
+          } else {
+            const xrCamera = renderer.xr.getCamera(camera);
+            xrCamera.getWorldPosition(originPos);
+            xrCamera.getWorldQuaternion(originQuat);
+          }
+
+          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(originQuat);
+          const target = originPos.add(forward.multiplyScalar(1.2));
+          setWorldPosition(wrapper, target);
+          wrapper.rotation.set(0, new THREE.Euler().setFromQuaternion(originQuat, 'YXZ').y, 0);
+          wrapper.scale.setScalar(0.5);
+        }
 
         gltf.scene.traverse(n => {
           if (n.isMesh && n.material) {
@@ -460,11 +880,17 @@ function spawnGLB(url) {
         });
 
         wrapper.add(gltf.scene);
-        scene.add(wrapper);
+        sharedRoot.add(wrapper);
         grabbableObjects.push(wrapper);
 
-        // ✅ PUT IT HERE
-        wrapper.userData.isLoading = true;
+        if (id) {
+          wrapper.userData.id = id;
+          objectsById.set(id, wrapper);
+        }
+
+        if (markLoading) wrapper.userData.isLoading = true;
+        if (markLoading && !resetOnReplace) wrapper.userData.baseRotation = wrapper.rotation.clone();
+        if (markLoading) wrapper.userData.resetOnReplace = resetOnReplace;
 
         resolve(wrapper);
       },
@@ -481,9 +907,45 @@ function replaceWrapperContent(wrapper, newScene) {
   while (wrapper.children.length > 0) {
     wrapper.remove(wrapper.children[0]);
   }
-  wrapper.rotation.set(0, 0, 0);
+  if (wrapper.userData.resetOnReplace) {
+    wrapper.rotation.set(0, 0, 0);
+    delete wrapper.userData.resetOnReplace;
+  } else if (wrapper.userData.baseRotation) {
+    wrapper.rotation.copy(wrapper.userData.baseRotation);
+    delete wrapper.userData.baseRotation;
+  }
 
   wrapper.add(newScene);
+}
+
+function base64ToObjectUrl(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: "model/gltf-binary" });
+  return URL.createObjectURL(blob);
+}
+
+function loadSourceIntoWrapper(wrapper, source) {
+  if (!source || !source.type || !source.value) return;
+
+  const url = source.type === 'base64' ? base64ToObjectUrl(source.value) : source.value;
+
+  loader.load(url, gltf => {
+    gltf.scene.traverse(n => {
+      if (n.isMesh && n.material) {
+        n.material.side = THREE.DoubleSide;
+        if ("metalness" in n.material) n.material.metalness = 0.3;
+        if ("roughness" in n.material) n.material.roughness = 0.7;
+        n.material.needsUpdate = true;
+      }
+    });
+
+    replaceWrapperContent(wrapper, gltf.scene);
+    if (source.type === 'base64') URL.revokeObjectURL(url);
+  });
 }
 
 
@@ -494,7 +956,23 @@ async function sendPrompt() {
   // 1. Spawn loading placeholder
   let wrapper;
   try {
-    wrapper = await spawnGLB("/assets/loading.glb");
+    const objectId = crypto.randomUUID();
+    wrapper = await spawnGLB("/assets/loading.glb", {
+      id: objectId,
+      markLoading: true,
+      resetOnReplace: true
+    });
+
+    sendWS({
+      type: 'create',
+      senderId: clientId,
+      object: {
+        id: objectId,
+        source: { type: 'asset', value: '/assets/loading.glb' },
+        isLoading: true,
+        transform: getTransform(wrapper)
+      }
+    });
   } catch (e) {
     console.error("Failed to load loading.glb", e);
     return;
@@ -517,41 +995,100 @@ async function sendPrompt() {
     const base64 = json?.result?.object_base64;
     if (!base64) throw new Error("No object_base64");
 
-    // 3. Decode base64 → blob
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
+    // 3. Load generated model into local wrapper
+    loadSourceIntoWrapper(wrapper, { type: 'base64', value: base64 });
 
-    const blob = new Blob([bytes], { type: "model/gltf-binary" });
-    const url = URL.createObjectURL(blob);
-
-    // 4. Load generated model
-    loader.load(url, gltf => {
-      gltf.scene.traverse(n => {
-        if (n.isMesh && n.material) {
-          n.material.side = THREE.DoubleSide;
-          if ("metalness" in n.material) n.material.metalness = 0.3;
-          if ("roughness" in n.material) n.material.roughness = 0.7;
-          n.material.needsUpdate = true;
-        }
-      });
-
-      replaceWrapperContent(wrapper, gltf.scene);
-      URL.revokeObjectURL(url);
+    // 4. Broadcast to shared world
+    sendWS({
+      type: 'replace',
+      id: wrapper.userData.id,
+      source: { type: 'base64', value: base64 },
+      isLoading: false,
+      senderId: clientId
     });
 
   } catch (err) {
     console.error("Generation failed:", err);
 
     // 5. Replace with failure model
-    loader.load("/assets/failed.glb", gltf => {
-      replaceWrapperContent(wrapper, gltf.scene);
+    loadSourceIntoWrapper(wrapper, { type: 'asset', value: '/assets/failed.glb' });
+    sendWS({
+      type: 'replace',
+      id: wrapper.userData.id,
+      source: { type: 'asset', value: '/assets/failed.glb' },
+      isLoading: false,
+      senderId: clientId
     });
   }
 
   input.value = "";
+}
+
+async function sendImageBase64(imageBase64) {
+  if (!imageBase64) return;
+
+  let wrapper;
+  try {
+    const objectId = crypto.randomUUID();
+    wrapper = await spawnGLB("/assets/loading.glb", {
+      id: objectId,
+      markLoading: true,
+      resetOnReplace: true
+    });
+
+    sendWS({
+      type: 'create',
+      senderId: clientId,
+      object: {
+        id: objectId,
+        source: { type: 'asset', value: '/assets/loading.glb' },
+        isLoading: true,
+        transform: getTransform(wrapper)
+      }
+    });
+  } catch (e) {
+    console.error("Failed to load loading.glb", e);
+    return;
+  }
+
+  try {
+    const res = await fetch(SPACE_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ image_base64: imageBase64 })
+    });
+
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+
+    const json = await res.json();
+    const base64 = json?.result?.object_base64;
+    if (!base64) throw new Error("No object_base64");
+
+    loadSourceIntoWrapper(wrapper, { type: 'base64', value: base64 });
+
+    sendWS({
+      type: 'replace',
+      id: wrapper.userData.id,
+      source: { type: 'base64', value: base64 },
+      isLoading: false,
+      senderId: clientId
+    });
+
+  } catch (err) {
+    console.error("Image generation failed:", err);
+
+    loadSourceIntoWrapper(wrapper, { type: 'asset', value: '/assets/failed.glb' });
+    sendWS({
+      type: 'replace',
+      id: wrapper.userData.id,
+      source: { type: 'asset', value: '/assets/failed.glb' },
+      isLoading: false,
+      senderId: clientId
+    });
+  }
 }
 
 
@@ -582,6 +1119,7 @@ function updateRayLength(ctrl,len){
 function grabStart(ctrl){
   const hit = raycast(ctrl);
   if (!hit) return;
+  if (hit.objectRoot?.userData?.isAnchorArrow && anchorSaved) return;
   ctrl.userData.grabbedObject = hit.objectRoot;
   ctrl.userData.distance = hit.distance;
 }
@@ -614,7 +1152,10 @@ function render() {
   const hoveredByRight = rightHit ? rightHit.objectRoot : null;
   const hoveredByLeft  = leftHit  ? leftHit.objectRoot  : null;
 
-  hoveredObjectForSpeech = hoveredByRight || hoveredByLeft;
+  const rightIsAnchor = hoveredByRight?.userData?.isAnchorArrow && xrMode === 'AR';
+  const leftIsAnchor = hoveredByLeft?.userData?.isAnchorArrow && xrMode === 'AR';
+
+  hoveredObjectForSpeech = (rightIsAnchor || leftIsAnchor) ? null : (hoveredByRight || hoveredByLeft);
   
   /* ---------- LOADING ROTATION ---------- */
   grabbableObjects.forEach(obj => {
@@ -628,19 +1169,13 @@ function render() {
 
   if (
     hoveredByRight &&
+    !hoveredByRight.userData?.isAnchorArrow &&
     rightController.userData.grabbedObject &&
     rightController.userData.rotate
   ) {
     comboActive = true;
   }
 
-  if (
-    hoveredByLeft &&
-    leftController.userData.scaleUp &&
-    leftController.userData.scaleDown
-  ) {
-    comboActive = true;
-  }
 
   /* ---------- RECORDING STATE ---------- */
   if (comboActive && !autoRecording) {
@@ -654,8 +1189,50 @@ function render() {
     stopRecordingInternal();
   }
 
+  const now = performance.now();
+  if (currentSession && now - lastUserSync >= USER_SYNC_INTERVAL_MS) {
+    const pos = getLocalUserPosition();
+    if (pos) {
+      sendWS({
+        type: 'user-state',
+        senderId: clientId,
+        position: { x: pos.x, y: pos.y, z: pos.z }
+      });
+      lastUserSync = now;
+    }
+  }
+
   /* ---------- RIGHT CONTROLLER ---------- */
-  if (comboActive && hoveredByRight) {
+  if (rightIsAnchor) {
+    if (!anchorSaved) {
+      if (rightController.userData.grabbedObject === anchorArrow) {
+        setRayColor(rightController, RAY_ACTIVE);
+
+        const pos = new THREE.Vector3().setFromMatrixPosition(rightController.matrixWorld);
+        const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(rightController.quaternion);
+
+        const target = pos.add(dir.multiplyScalar(rightController.userData.distance));
+        setWorldPosition(anchorArrow, target);
+        clampToFloor(anchorArrow);
+
+        if (rightController.userData.rotate) {
+          anchorArrow.rotation.y -= 0.04;
+        }
+
+        updateRayLength(rightController, rightController.userData.distance);
+      } else {
+        if (rightController.userData.rotate) {
+          anchorArrow.rotation.y -= 0.04;
+        }
+        setRayColor(rightController, rightController.userData.rotate ? RAY_ACTIVE : RAY_HOVER);
+        updateRayLength(rightController, rightHit.distance);
+      }
+    } else {
+      setRayColor(rightController, RAY_HOVER);
+      updateRayLength(rightController, rightHit.distance);
+    }
+
+  } else if (comboActive && hoveredByRight) {
     // Voice-command mode: no manipulation
     setRayColor(rightController, RAY_RECORDING);
     updateRayLength(rightController, rightHit.distance);
@@ -667,9 +1244,8 @@ function render() {
     const pos = new THREE.Vector3().setFromMatrixPosition(rightController.matrixWorld);
     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(rightController.quaternion);
 
-    grabbed.position.copy(
-      pos.add(dir.multiplyScalar(rightController.userData.distance))
-    );
+    const target = pos.add(dir.multiplyScalar(rightController.userData.distance));
+    setWorldPosition(grabbed, target);
 
     if (rightController.userData.rotate) {
       grabbed.rotation.y -= 0.04;
@@ -677,12 +1253,14 @@ function render() {
 
     clampToFloor(grabbed);
     updateRayLength(rightController, rightController.userData.distance);
+    maybeSyncTransform(grabbed);
 
   } else if (rightHit) {
     const obj = rightHit.objectRoot;
 
     if (rightController.userData.rotate) {
       obj.rotation.y -= 0.04;
+      maybeSyncTransform(obj);
     }
 
     setRayColor(
@@ -697,7 +1275,17 @@ function render() {
   }
 
   /* ---------- LEFT CONTROLLER ---------- */
-  if (comboActive && hoveredByLeft) {
+  if (leftIsAnchor) {
+    if (!anchorSaved && leftController.userData.scaleUp) {
+      saveAnchorFromArrow();
+    }
+    if (anchorSaved && leftController.userData.scaleDown) {
+      unlockAnchor();
+    }
+    setRayColor(leftController, anchorSaved ? RAY_ACTIVE : RAY_HOVER);
+    updateRayLength(leftController, leftHit.distance);
+
+  } else if (comboActive && hoveredByLeft) {
     // Voice-command mode: no manipulation
     setRayColor(leftController, RAY_RECORDING);
     updateRayLength(leftController, leftHit.distance);
@@ -711,6 +1299,9 @@ function render() {
 
     obj.scale.clampScalar(0.1, 5);
     clampToFloor(obj);
+    if (leftController.userData.scaleUp || leftController.userData.scaleDown) {
+      maybeSyncTransform(obj);
+    }
 
     if (leftController.userData.scaleUp || leftController.userData.scaleDown) {
       setRayColor(leftController, RAY_ACTIVE);
